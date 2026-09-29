@@ -1,0 +1,14 @@
+# Per-pane runtime state written by start.sh / stop.sh / play.sh
+.pid_*
+.pane_*
+.last_game_*
+.play_pane
+picks.log
+
+# Game saves (one per Claude session)
+saves/
+
+# Art isn't part of this repo: runner.png was a personal image and the sprites
+# are rendered Apple emoji. bounce.py expects your own PNGs in sprites/.
+*.png
+sprites/
