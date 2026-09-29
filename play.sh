@@ -7,8 +7,14 @@ GAME="${1:-codemon}"
 PANEF="$DIR/.play_pane"
 
 if [ "$GAME" = "stop" ]; then
-  [ -f "$PANEF" ] && herdr pane close "$(cat "$PANEF")" >/dev/null 2>&1
-  rm -f "$PANEF"; pkill -f "dungeon.mjs" >/dev/null 2>&1
+  # Stop only the renderer drawing into our pane. A blanket `pkill dungeon.mjs`
+  # also killed the games every other Claude session had open.
+  if [ -f "$PANEF" ]; then
+    PANE=$(cat "$PANEF")
+    pkill -f "dungeon.mjs $PANE\$" >/dev/null 2>&1
+    herdr pane close "$PANE" >/dev/null 2>&1
+  fi
+  rm -f "$PANEF"
   echo "stopped"; exit 0
 fi
 
