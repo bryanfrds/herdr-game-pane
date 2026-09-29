@@ -1,6 +1,6 @@
 # herdr game pane
 
-I wanted something to look at while Claude Code works, so this plays one of my browser games in a side pane of [herdr](https://herdr.dev) (a terminal multiplexer) for as long as Claude is busy.
+Something to look at while Claude Code works, so this plays one of my browser games in a side pane of [herdr](https://herdr.dev) (a terminal multiplexer) for as long as Claude is busy.
 
 You send Claude a message and a pane opens on the right with a game playing itself. When Claude finishes, the pane closes. The two games are my [dungeon crawler](https://github.com/bryanfrds/dragons-dungeon-game) and [CodeMon](https://github.com/bryanfrds/Codemon), and they take turns: dungeon one message, CodeMon the next.
 
