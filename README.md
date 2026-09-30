@@ -13,6 +13,8 @@ You send Claude a message and a pane opens on the right with a game playing itse
 
 Everything is tracked per pane, so if you've got several Claude sessions open in herdr, each one gets its own game and closing one doesn't touch the others.
 
+Working out which pane a chat is in is less obvious than it sounds. Claude Code keeps spare processes warm in the background and hands one to the next chat you open, and a spare keeps the herdr pane id of wherever it was started. So `$HERDR_PANE_ID` can point at a different chat's pane. The hooks ask herdr which pane is showing their session instead, and only fall back to `$HERDR_PANE_ID` for a chat that didn't come from a spare. Before this, games kept opening beside an idle chat while the one actually working got nothing.
+
 The games alternate strictly instead of at random. I tried a coin flip first, but three dungeons in a row just looked like CodeMon was broken. If one game's folder is missing, it plays the other one.
 
 ## How the game gets into a terminal
@@ -37,6 +39,7 @@ Chrome's profile is thrown away every run, so the dungeon's save is copied out t
 
 - `dungeon.mjs`: streams a game into a pane. Despite the name, it handles both games; each has a profile near the top of the file saying how to tell it's loaded, what to crop, and how to keep it moving.
 - `start.sh` / `stop.sh`: the two Claude Code hooks.
+- `pane-for-session.sh`: finds the herdr pane a Claude session is really in (see above).
 - `play.sh`: starts a game whenever you want one, not just while Claude works. `play.sh codemon`, `play.sh dungeon`, or `play.sh stop`.
 - `bounce.py`: an older, lighter mode that bounces a sprite around the pane instead of running a game. It needs PNGs in `sprites/`, which aren't in the repo.
 
