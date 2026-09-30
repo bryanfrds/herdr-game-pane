@@ -9,7 +9,14 @@ MODE="${RUNNER_MODE:-dungeon}"
   && ! ls "$HOME"/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell >/dev/null 2>&1 \
   && [ -z "${DUNGEON_CHROME:-}" ] && MODE=overlay
 DIR="$HOME/.claude/runner"
-[ -n "${HERDR_PANE_ID:-}" ] || exit 0
+[ -n "${HERDR_PANE_ID:-}" ] || exit 0     # not inside herdr at all
+
+# The hook's JSON arrives once on stdin; keep it, both the pane lookup and the
+# save key need the session id from it.
+HOOK_INPUT=$(cat)
+SESSION_ID=$(printf '%s' "$HOOK_INPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id",""))' 2>/dev/null)
+HERDR_PANE_ID=$("$DIR/pane-for-session.sh" "$SESSION_ID")
+[ -n "$HERDR_PANE_ID" ] || exit 0
 
 # Per-pane pid file, so parallel agents don't fight over one another.
 SLUG=$(echo "$HERDR_PANE_ID" | tr -c 'a-zA-Z0-9' '_')
@@ -43,8 +50,7 @@ fi
 if [ "$MODE" = "dungeon" ]; then
   # One save per chat, keyed by Claude's session id (from the hook's JSON on stdin),
   # so a resumed chat picks its own hero back up. Falls back to the pane id.
-  SID=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id",""))' 2>/dev/null \
-        | tr -c 'a-zA-Z0-9-' '_' | sed 's/_*$//')
+  SID=$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9-' '_' | sed 's/_*$//')
   mkdir -p "$DIR/saves"
   NODE=$(command -v node || echo "$HOME/.local/bin/node")
 
