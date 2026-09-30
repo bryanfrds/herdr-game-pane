@@ -3,6 +3,10 @@
 set -u
 DIR="$HOME/.claude/runner"
 [ -n "${HERDR_PANE_ID:-}" ] || exit 0
+# Same lookup as start.sh, so the pane it opened is the one closed here.
+SESSION_ID=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id",""))' 2>/dev/null)
+HERDR_PANE_ID=$("$DIR/pane-for-session.sh" "$SESSION_ID")
+[ -n "$HERDR_PANE_ID" ] || exit 0
 SLUG=$(echo "$HERDR_PANE_ID" | tr -c 'a-zA-Z0-9' '_')
 PIDF="$DIR/.pid_$SLUG"
 PANEF="$DIR/.pane_$SLUG"
