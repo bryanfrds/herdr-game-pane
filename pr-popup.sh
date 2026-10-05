@@ -15,7 +15,7 @@ else
 import json, sys
 d = json.load(sys.stdin)
 kind = d.get("agent_type") or d.get("subagent_type") or ""
-if kind and kind != "pr-reviewer":
+if kind != "pr-reviewer":                 # no type at all counts as not a review
     print("none"); sys.exit()
 import re
 text = d.get("last_assistant_message") or ""
