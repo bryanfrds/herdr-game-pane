@@ -56,8 +56,11 @@ SH
 }
 teardown() { rm -rf "$T"; }
 trap 'rm -rf "${T:-}"' EXIT                     # even if the run is interrupted
-# The node process start.sh puts in the background writes its line a moment later.
-settle() { for _ in 1 2 3 4 5 6 7 8 9 10; do grep -q '^node' "$LOG" && return; sleep 0.1; done; }
+# start.sh puts node in the background, so its line lands a moment later.
+# settle [n]: wait until n games have started (default 1).
+settle() {
+  for _ in $(seq 50); do [ "$(grep -c '^node' "$LOG")" -ge "${1:-1}" ] && return; sleep 0.1; done
+}
 panes() {   # panes <pane id> <session id>: what `herdr pane list` reports
   export FAKE_PANES="{\"result\":{\"panes\":[{\"pane_id\":\"other\",\"agent_session\":{\"value\":\"someone-else\"}},{\"pane_id\":\"$1\",\"agent_session\":{\"value\":\"$2\"}}]}}"
 }
@@ -97,8 +100,8 @@ has   "starts a game in the new pane" "$LOG" "^node .*dungeon.mjs new-1"
 teardown
 
 setup; panes p sess-1
-for _ in 1 2 3 4; do
-  hook sess-1 | "$RUN/start.sh"; settle
+for i in 1 2 3 4; do
+  hook sess-1 | "$RUN/start.sh"; settle $i
   rm -f "$RUN"/.pid_*                           # as stop.sh would, between turns
 done
 check "takes turns between the two games" \
@@ -106,8 +109,8 @@ check "takes turns between the two games" \
 teardown
 
 setup; panes p sess-1; export RUNNER_GAME=dungeon
-hook sess-1 | "$RUN/start.sh"; settle
-hook sess-1 | "$RUN/start.sh"; settle
+hook sess-1 | "$RUN/start.sh"; settle; rm -f "$RUN"/.pid_*
+hook sess-1 | "$RUN/start.sh"; settle 2
 hasnt "RUNNER_GAME pins one game" "$LOG" "profile=codemon"
 teardown
 
@@ -140,7 +143,7 @@ teardown
 setup; panes p sess-1; export SPLIT_FAILS=1
 hook sess-1 | "$RUN/start.sh"; sleep 0.3
 hasnt "starts no game if the pane couldn't open" "$LOG" "^node"
-check "and records no pane" "$(ls "$RUN" | grep -c '^\.pane_')" "0"
+check "and records no pane" "$(ls -A "$RUN" | grep -c '^\.pane_')" "0"
 teardown
 
 echo "stop.sh"
