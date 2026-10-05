@@ -83,4 +83,6 @@ All of these are environment variables:
 bash tests/test_scripts.sh
 ```
 
+GitHub runs them on Linux and macOS for every pull request.
+
 They run the hook scripts against a fake `herdr` and `node` in a throwaway home folder, so no real pane opens and no save is touched. They cover finding the chat's real pane, taking turns between the games, keeping one dungeon save per chat, not stacking a second game, cleaning up a pane a crashed run left behind, and closing only your own pane on stop.
