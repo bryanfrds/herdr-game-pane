@@ -13,7 +13,7 @@ saves/
 *.png
 sprites/
 
-# The approval popup's sound effect is a personal file too.
+# The PR popup's sounds and gif are personal files too.
 green-fn.mp3
 green-fn.m4a
 green-fn.wav
