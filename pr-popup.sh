@@ -9,7 +9,7 @@ if [ "${1:-}" = "--show" ]; then
   RESULT="${2:-green}"
 else
   INPUT=$(cat)
-  # Only pr-reviewer, and only an APPROVE verdict. The final message is read from
+  # Only pr-reviewer, and only APPROVE or REQUEST_CHANGES. The final message is read from
   # the hook payload, or else the last assistant entry in the agent's transcript.
   RESULT=$(printf '%s' "$INPUT" | python3 -c '
 import json, sys
@@ -33,7 +33,9 @@ if "VERDICT:" not in text and path:
     except (OSError, ValueError):
         pass
 text = text.replace("\\n", "\n")
-m = re.findall(r"VERDICT:\s*([A-Z_]+)", text)
+# The word must end the line, so a quoted template such as
+# "VERDICT: APPROVE | REQUEST_CHANGES | COMMENT" does not read as an approval.
+m = re.findall(r"VERDICT:[ \t]*([A-Z_]+)[ \t]*$", text, re.M)
 verdict = m[-1] if m else ""
 print({"APPROVE": "green", "REQUEST_CHANGES": "fail"}.get(verdict, "none"))
 ' 2>/dev/null)
