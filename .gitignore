@@ -12,3 +12,11 @@ saves/
 # are rendered Apple emoji. bounce.py expects your own PNGs in sprites/.
 *.png
 sprites/
+
+# The approval popup's sound effect is a personal file too.
+green-fn.mp3
+green-fn.m4a
+green-fn.wav
+green-fn.aiff
+thanos.gif
+fahhh.mp3
