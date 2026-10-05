@@ -174,6 +174,65 @@ has   "and stops only the game drawing into that pane" "$LOG" "^pkill -f dungeon
 check "and forgets it" "$([ -f "$RUN/.play_pane" ] && echo still there)" ""
 teardown
 
+echo "pr-popup.sh"
+
+# osascript and afplay are logged, never run, so no window opens and nothing plays.
+popup_setup() {
+  setup
+  for b in osascript afplay; do printf '#!/bin/bash\necho "%s $*" >> "$LOG"\n' "$b" > "$T/bin/$b"; chmod +x "$T/bin/$b"; done
+  touch "$RUN/green-fn-cropped.png" "$RUN/thanos.gif" "$RUN/green-fn.mp3" "$RUN/fahhh.mp3"
+}
+# The popup starts both in the background; wait for the card (or give up).
+shown() { for _ in $(seq 30); do grep -q '^osascript' "$LOG" && return; sleep 0.1; done; }
+review() {  # review <agent type> <final message>
+  python3 -c 'import json,sys; print(json.dumps({"agent_type": sys.argv[1], "last_assistant_message": sys.argv[2]}))' "$1" "$2"
+}
+
+popup_setup
+review pr-reviewer $'Looks good.\nVERDICT: APPROVE\nCI: passing' | "$RUN/pr-popup.sh"; shown
+has "an approval shows the green card" "$LOG" "^osascript .*green-fn-cropped\\.png"
+has "and plays its sound" "$LOG" "^afplay .*green-fn\\.mp3"
+teardown
+
+popup_setup
+review pr-reviewer $'VERDICT: REQUEST_CHANGES\nBLOCKERS: 1' | "$RUN/pr-popup.sh"; shown
+has "requested changes show the Thanos card" "$LOG" "^osascript .*thanos\\.gif"
+has "and play fahhh" "$LOG" "^afplay .*fahhh\\.mp3"
+teardown
+
+popup_setup
+review pr-reviewer 'VERDICT: COMMENT' | "$RUN/pr-popup.sh"; sleep 0.3
+hasnt "a COMMENT verdict shows nothing" "$LOG" "^osascript"
+teardown
+
+popup_setup
+review code-reviewer 'VERDICT: APPROVE' | "$RUN/pr-popup.sh"; sleep 0.3
+hasnt "another agent's approval shows nothing" "$LOG" "^osascript"
+teardown
+
+popup_setup
+echo '{"last_assistant_message":"VERDICT: APPROVE"}' | "$RUN/pr-popup.sh"; sleep 0.3
+hasnt "no agent type shows nothing" "$LOG" "^osascript"
+teardown
+
+popup_setup
+review pr-reviewer $'Format:\nVERDICT: APPROVE | REQUEST_CHANGES | COMMENT' | "$RUN/pr-popup.sh"; sleep 0.3
+hasnt "a quoted verdict template isn't an approval" "$LOG" "^osascript"
+teardown
+
+popup_setup
+python3 -c 'import json; print(json.dumps({"type":"assistant","message":{"content":[{"type":"text","text":"done\nVERDICT: REQUEST_CHANGES\n"}]}}))' > "$T/transcript.jsonl"
+python3 -c 'import json,sys; print(json.dumps({"agent_type":"pr-reviewer","agent_transcript_path":sys.argv[1]}))' "$T/transcript.jsonl" \
+  | "$RUN/pr-popup.sh"; shown
+has "with no final message, it reads the verdict from the transcript" "$LOG" "^osascript .*thanos\\.gif"
+teardown
+
+popup_setup; rm "$RUN/green-fn-cropped.png"
+review pr-reviewer 'VERDICT: APPROVE' | "$RUN/pr-popup.sh"; code=$?; sleep 0.3
+check "with the image missing it exits cleanly" "$code" "0"
+hasnt "and shows nothing" "$LOG" "^osascript"
+teardown
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
