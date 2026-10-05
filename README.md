@@ -42,6 +42,7 @@ Chrome's profile is thrown away every run, so the dungeon's save is copied out t
 - `pane-for-session.sh`: finds the herdr pane a Claude session is really in (see above).
 - `play.sh`: starts a game whenever you want one, not just while Claude works. `play.sh codemon`, `play.sh dungeon`, or `play.sh stop`.
 - `bounce.py`: an older, lighter mode that bounces a sprite around the pane instead of running a game. It needs PNGs in `sprites/`, which aren't in the repo.
+- `tests/`: tests for the hook scripts (see Tests below).
 
 ## Setup
 
@@ -75,3 +76,11 @@ All of these are environment variables:
 - **No pane appears:** check you're inside herdr (`echo $HERDR_PANE_ID` should print something) and that the hooks are in `settings.json`.
 - **The pane opens but stays blank:** run `DUNGEON_DEBUG=1 node dungeon.mjs <pane id>` by hand to see what it's complaining about.
 - **Leftover panes:** they get closed the next time you message Claude. `play.sh stop` closes one started by `play.sh`.
+
+## Tests
+
+```bash
+bash tests/test_scripts.sh
+```
+
+They run the hook scripts against a fake `herdr` and `node` in a throwaway home folder, so no real pane opens and no save is touched. They cover finding the chat's real pane, taking turns between the games, keeping one dungeon save per chat, not stacking a second game, cleaning up a pane a crashed run left behind, and closing only your own pane on stop.
