@@ -4,7 +4,7 @@
 # Claude Code SubagentStop hook: reads the hook JSON on stdin.
 #   pr-popup.sh --show [green|fail]   just shows one (for testing)
 set -u
-DIR="$HOME/.claude/runner"
+DIR="$(cd "$(dirname "$0")" && pwd)"     # the image and sounds sit next to this script
 if [ "${1:-}" = "--show" ]; then
   RESULT="${2:-green}"
 else
