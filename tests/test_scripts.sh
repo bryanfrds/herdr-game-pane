@@ -21,7 +21,7 @@ hasnt() {
 # A fresh fake home for each test: the scripts copied into ~/.claude/runner,
 # both games present, and fake herdr/node first on the PATH.
 setup() {
-  T=$(mktemp -d)
+  T=$(mktemp -d) || exit 1
   export HOME="$T/home" LOG="$T/calls.log"
   RUN="$HOME/.claude/runner"
   mkdir -p "$RUN" "$T/bin" "$HOME/pokemon-wannabe" "$HOME/pixel-dungeon-crawler"
@@ -43,13 +43,19 @@ SH
 #!/bin/bash
 echo "node $* game=${DUNGEON_GAME:-} profile=${DUNGEON_PROFILE:-} save=${DUNGEON_SAVE:-}" >> "$LOG"
 SH
-  chmod +x "$T/bin/herdr" "$T/bin/node"
+  # pkill: logged, never run, so a test can't stop a real game.
+  printf '#!/bin/bash\necho "pkill $*" >> "$LOG"\n' > "$T/bin/pkill"
+  chmod +x "$T/bin/herdr" "$T/bin/node" "$T/bin/pkill"
   export PATH="$T/bin:$ORIG_PATH"
   # Keep dungeon mode on machines without Chrome, such as CI.
   export DUNGEON_CHROME=fake HERDR_PANE_ID=env-pane
   unset RUNNER_MODE RUNNER_GAME CLAUDE_CODE_SESSION_KIND FAKE_PANES SPLIT_FAILS
+  # stop.sh talks to herdr's socket directly; point it somewhere with nothing listening.
+  export HERDR_SOCKET_PATH="$T/herdr.sock"
+  unset HERDR_ENV HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_BIN_PATH
 }
 teardown() { rm -rf "$T"; }
+trap 'rm -rf "${T:-}"' EXIT                     # even if the run is interrupted
 # The node process start.sh puts in the background writes its line a moment later.
 settle() { for _ in 1 2 3 4 5 6 7 8 9 10; do grep -q '^node' "$LOG" && return; sleep 0.1; done; }
 panes() {   # panes <pane id> <session id>: what `herdr pane list` reports
@@ -140,7 +146,7 @@ teardown
 echo "stop.sh"
 
 setup; panes p sess-1; echo game-pane > "$RUN/.pane_p_"
-sleep 30 & GAME=$!; echo $GAME > "$RUN/.pid_p_"
+sleep 30 & GAME=$!; disown; echo $GAME > "$RUN/.pid_p_"
 hook sess-1 | "$RUN/stop.sh"
 has   "closes the pane start.sh opened" "$LOG" "^herdr pane close game-pane"
 if kill -0 $GAME 2>/dev/null; then fail "stops the game"; kill $GAME; else ok "stops the game"; fi
@@ -161,6 +167,7 @@ teardown
 setup; echo game-pane > "$RUN/.play_pane"
 "$RUN/play.sh" stop >/dev/null
 has   "stop closes the pane it opened" "$LOG" "^herdr pane close game-pane"
+has   "and stops only the game drawing into that pane" "$LOG" "^pkill -f dungeon.mjs game-pane\\$"
 check "and forgets it" "$([ -f "$RUN/.play_pane" ] && echo still there)" ""
 teardown
 
