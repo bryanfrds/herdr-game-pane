@@ -237,6 +237,16 @@ check "with the image missing it exits cleanly" "$code" "0"
 hasnt "and shows nothing" "$LOG" "^osascript"
 teardown
 
+popup_setup
+echo '{bad json' | "$RUN/pr-popup.sh"; sleep 0.3
+hasnt "malformed hook JSON shows nothing" "$LOG" "^osascript"
+teardown
+
+popup_setup
+review pr-reviewer $'VERDICT: APPROVE\r\nCI: passing' | "$RUN/pr-popup.sh"; shown
+has "a Windows line ending still reads as an approval" "$LOG" "^osascript .*green-fn-cropped\\.png"
+teardown
+
 # With the video there too, approvals take turns: picture, video, picture.
 approve() { : > "$LOG"; review pr-reviewer 'VERDICT: APPROVE' | "$RUN/pr-popup.sh"; shown; sleep 0.2; }
 popup_setup; touch "$RUN/green-fn-video.mov"
