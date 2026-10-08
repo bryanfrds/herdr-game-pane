@@ -1,6 +1,6 @@
 #!/bin/bash
-# Pop up a reaction when a pr-reviewer subagent finishes: GREEN FN (picture and video, in turn) for an
-# approval, a crumbling Thanos memoji with FAHHH for requested changes.
+# Pop up a reaction when a pr-reviewer subagent finishes: GREEN FN for an approval
+# (a picture and a video, taking turns), a crumbling Thanos memoji with FAHHH for requested changes.
 # Claude Code SubagentStop hook: reads the hook JSON on stdin.
 #   pr-popup.sh --show [green|fail]   just shows one (for testing)
 set -u
@@ -11,7 +11,9 @@ else
   INPUT=$(cat)
   # Only pr-reviewer, and only APPROVE or REQUEST_CHANGES. The final message is read from
   # the hook payload, or else the last assistant entry in the agent's transcript.
-  RESULT=$(printf '%s' "$INPUT" | node -e '
+  # Same lookup as start.sh: a hook's PATH may not include where node lives.
+  NODE=$(command -v node || { [ -x "$HOME/.local/bin/node" ] && echo "$HOME/.local/bin/node"; } || echo /opt/homebrew/bin/node)
+  RESULT=$(printf '%s' "$INPUT" | "$NODE" -e '
 let d; try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { d = {}; }
 const kind = d.agent_type || d.subagent_type || "";
 if (kind !== "pr-reviewer") { console.log("none"); process.exit(); }   // no type counts as not a review
@@ -61,7 +63,7 @@ case "$RESULT" in
   green)
     case "$(next_green)" in
       image) IMG="$DIR/green-fn-cropped.png"; SOUND="green-fn"; HOLD=4.0 ;;   # border trimmed off
-      video) IMG="$DIR/green-fn-video.mov";   SOUND="";         HOLD=0 ;;     # plays to its end, with its own sound
+      video) IMG="$DIR/green-fn-video.mov";   SOUND="";         HOLD= ;;      # plays to its end, with its own sound
       *)     exit 0 ;;
     esac ;;
   fail)  IMG="$DIR/thanos.gif"; SOUND="fahhh"; HOLD=1.55 ;;  # ~2.5s in all, the GIF plays once; white made see-through
@@ -95,10 +97,11 @@ function run(argv) {
   if (isVideo) {
     const item = AV('AVPlayerItem').playerItemWithURL($.NSURL.fileURLWithPath(path));
     player = AV('AVPlayer').playerWithPlayerItem(item);
-    player.volume = Number(argv[2]) || 0.3;        // the clip is mixed loud; GREEN_FN_VOLUME sets 0-1
+    const vol = parseFloat(argv[2]);                 // the clip is mixed loud; GREEN_FN_VOLUME sets 0-1
+    player.volume = Number.isFinite(vol) ? Math.min(1, Math.max(0, vol)) : 0.3;
     const track = item.asset.tracksWithMediaType('vide').firstObject;
-    const size = track.naturalSize;
-    h = 320; w = Math.round(h * size.width / size.height) || 222;
+    h = 320; w = 222;
+    if (track) { const size = track.naturalSize; w = Math.round(h * size.width / size.height) || w; }
   }
   const rect = $.NSMakeRect(area.origin.x + (area.size.width - w) / 2, area.origin.y + 48, w, h);
   const win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer(
