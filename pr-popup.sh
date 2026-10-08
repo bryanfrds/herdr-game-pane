@@ -86,9 +86,9 @@ if [ -n "$SOUND" ]; then
   done
 fi
 
-# A small card at the bottom centre of the screen that fades in, holds, and fades
-# out. A picture gets rounded corners; a video keeps its own shape (its background is
-# see-through) and holds until it finishes. Detached, so the hook returns straight away.
+# A small rounded card at the bottom centre of the screen that fades in, holds, and
+# fades out. A picture holds for HOLD; a video holds until it ends (the corners only show
+# on a clip with a background). Detached, so the hook returns straight away.
 nohup osascript -l JavaScript - "$IMG" "$HOLD" "${POPUP_VOLUME:-${GREEN_FN_VOLUME:-0.3}}" >/dev/null 2>&1 <<'JXA' &
 function run(argv) {
   ObjC.import('Cocoa');
