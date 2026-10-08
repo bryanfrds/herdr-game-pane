@@ -42,7 +42,7 @@ Chrome's profile is thrown away every run, so the dungeon's save is copied out t
 - `pane-for-session.sh`: finds the herdr pane a Claude session is really in (see above).
 - `play.sh`: starts a game whenever you want one, not just while Claude works. `play.sh codemon`, `play.sh dungeon`, or `play.sh stop`.
 - `bounce.py`: an older, lighter mode that bounces a sprite around the pane instead of running a game. It needs PNGs in `sprites/`, which aren't in the repo.
-- `pr-popup.sh`: an optional extra, not part of the game pane. When a `pr-reviewer` subagent finishes, it shows a small card at the bottom of the screen with a sound: `green-fn-cropped.png` and `green-fn.mp3` for an approval, `thanos.gif` and `fahhh.mp3` for requested changes. Those files are your own and aren't in the repo; without the image it does nothing. Hook it up as a `SubagentStop` hook (`bash ~/.claude/runner/pr-popup.sh`), and try it with `pr-popup.sh --show green` or `--show fail`. macOS only.
+- `pr-popup.sh`: an optional extra, not part of the game pane. When a `pr-reviewer` subagent finishes, it shows a small card at the bottom of the screen with a sound: `green-fn-cropped.png` and `green-fn.mp3` for an approval (taking turns with `green-fn-video.mov`, a clip with a see-through background that plays with its own sound, at 30% volume; `GREEN_FN=image` or `GREEN_FN=video` picks one, `GREEN_FN_VOLUME` sets 0-1), `thanos.gif` and `fahhh.mp3` for requested changes. Those files are your own and aren't in the repo; without the image it does nothing. Hook it up as a `SubagentStop` hook (`bash ~/.claude/runner/pr-popup.sh`), and try it with `pr-popup.sh --show green` or `--show fail`. macOS only.
 - `tests/`: tests for the hook scripts (see Tests below).
 
 ## Setup

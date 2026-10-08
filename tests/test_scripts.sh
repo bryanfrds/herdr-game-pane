@@ -181,23 +181,27 @@ popup_setup() {
   setup
   for b in osascript afplay; do printf '#!/bin/bash\necho "%s $*" >> "$LOG"\n' "$b" > "$T/bin/$b"; chmod +x "$T/bin/$b"; done
   touch "$RUN/green-fn-cropped.png" "$RUN/thanos.gif" "$RUN/green-fn.mp3" "$RUN/fahhh.mp3"
+  rm -f "$RUN/green-fn-video.mov" "$RUN/.green_fn_next"
+  rm "$T/bin/node"   # the popup reads the hook JSON with the real node
 }
 # The popup starts both in the background; wait for the card (or give up).
 shown() { for _ in $(seq 30); do grep -q '^osascript' "$LOG" && return; sleep 0.1; done; }
+# The sound starts separately, so it can land after the card; wait for it too.
+heard() { for _ in $(seq 30); do grep -q '^afplay' "$LOG" && return; sleep 0.1; done; }
 review() {  # review <agent type> <final message>
-  python3 -c 'import json,sys; print(json.dumps({"agent_type": sys.argv[1], "last_assistant_message": sys.argv[2]}))' "$1" "$2"
+  node -e 'console.log(JSON.stringify({agent_type: process.argv[1], last_assistant_message: process.argv[2]}))' "$1" "$2"
 }
 
 popup_setup
 review pr-reviewer $'Looks good.\nVERDICT: APPROVE\nCI: passing' | "$RUN/pr-popup.sh"; shown
 has "an approval shows the green card" "$LOG" "^osascript .*green-fn-cropped\\.png"
-has "and plays its sound" "$LOG" "^afplay .*green-fn\\.mp3"
+heard; has "and plays its sound" "$LOG" "^afplay .*green-fn\\.mp3"
 teardown
 
 popup_setup
 review pr-reviewer $'VERDICT: REQUEST_CHANGES\nBLOCKERS: 1' | "$RUN/pr-popup.sh"; shown
 has "requested changes show the Thanos card" "$LOG" "^osascript .*thanos\\.gif"
-has "and play fahhh" "$LOG" "^afplay .*fahhh\\.mp3"
+heard; has "and play fahhh" "$LOG" "^afplay .*fahhh\\.mp3"
 teardown
 
 popup_setup
@@ -221,8 +225,8 @@ hasnt "a quoted verdict template isn't an approval" "$LOG" "^osascript"
 teardown
 
 popup_setup
-python3 -c 'import json; print(json.dumps({"type":"assistant","message":{"content":[{"type":"text","text":"done\nVERDICT: REQUEST_CHANGES\n"}]}}))' > "$T/transcript.jsonl"
-python3 -c 'import json,sys; print(json.dumps({"agent_type":"pr-reviewer","agent_transcript_path":sys.argv[1]}))' "$T/transcript.jsonl" \
+node -e 'console.log(JSON.stringify({type: "assistant", message: {content: [{type: "text", text: "done\nVERDICT: REQUEST_CHANGES\n"}]}}))' > "$T/transcript.jsonl"
+node -e 'console.log(JSON.stringify({agent_type: "pr-reviewer", agent_transcript_path: process.argv[1]}))' "$T/transcript.jsonl" \
   | "$RUN/pr-popup.sh"; shown
 has "with no final message, it reads the verdict from the transcript" "$LOG" "^osascript .*thanos\\.gif"
 teardown
@@ -231,6 +235,38 @@ popup_setup; rm "$RUN/green-fn-cropped.png"
 review pr-reviewer 'VERDICT: APPROVE' | "$RUN/pr-popup.sh"; code=$?; sleep 0.3
 check "with the image missing it exits cleanly" "$code" "0"
 hasnt "and shows nothing" "$LOG" "^osascript"
+teardown
+
+popup_setup
+echo '{bad json' | "$RUN/pr-popup.sh"; sleep 0.3
+hasnt "malformed hook JSON shows nothing" "$LOG" "^osascript"
+teardown
+
+popup_setup
+review pr-reviewer $'VERDICT: APPROVE\r\nCI: passing' | "$RUN/pr-popup.sh"; shown
+has "a Windows line ending still reads as an approval" "$LOG" "^osascript .*green-fn-cropped\\.png"
+teardown
+
+# With the video there too, approvals take turns: picture, video, picture.
+approve() { : > "$LOG"; review pr-reviewer 'VERDICT: APPROVE' | "$RUN/pr-popup.sh"; shown; sleep 0.2; }
+popup_setup; touch "$RUN/green-fn-video.mov"
+approve
+has   "with the video added, the first approval shows the picture" "$LOG" "^osascript .*green-fn-cropped\\.png"
+approve
+has   "the next shows the video" "$LOG" "^osascript .*green-fn-video\\.mov"
+hasnt "which brings its own sound, not green-fn.mp3" "$LOG" "^afplay"
+approve
+has   "and the one after is the picture again" "$LOG" "^osascript .*green-fn-cropped\\.png"
+teardown
+
+popup_setup; touch "$RUN/green-fn-video.mov"
+for _ in 1 2; do : > "$LOG"; review pr-reviewer 'VERDICT: APPROVE' | GREEN_FN=video "$RUN/pr-popup.sh"; shown; sleep 0.2
+  has "GREEN_FN=video always shows the video" "$LOG" "^osascript .*green-fn-video\\.mov"; done
+teardown
+
+popup_setup; touch "$RUN/green-fn-video.mov"; rm "$RUN/green-fn-cropped.png"
+approve; approve
+has   "with only the video, every approval shows it" "$LOG" "^osascript .*green-fn-video\\.mov"
 teardown
 
 echo
