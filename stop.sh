@@ -27,8 +27,8 @@ sleep 0.2
 # Clear the image layer from whichever pane it was drawn on.
 for P in "$HERDR_PANE_ID" "$(cat "$PANEF" 2>/dev/null)"; do
   [ -n "$P" ] || continue
-  # Ask herdr's socket to clear each layer. Any failure (no socket, no reply in 2s)
-  # ends the whole clear, as before.
+  # Ask herdr's socket to clear each layer, one connection each. A reply or a closed
+  # connection moves on to the next layer; no socket, or no answer in 2s, ends the clear.
   "$NODE" -e '
 const net = require("net"), path = require("path"), os = require("os");
 const sock = process.env.HERDR_SOCKET_PATH || path.join(os.homedir(), ".config/herdr/herdr.sock");
@@ -41,6 +41,7 @@ const clear = (layer) => new Promise((done) => {
   s.on("connect", () => s.write(JSON.stringify({ id: "stop", method: "pane.graphics.clear",
     params: { pane_id: pane, layer_id: layer } }) + "\n"));
   s.on("data", () => { clearTimeout(timer); s.destroy(); done(); });
+  s.on("close", () => { clearTimeout(timer); done(); });   // closed without replying: next layer
 });
 (async () => { for (const layer of ["runner", "dungeon"]) await clear(layer); })();
 ' "$P" >/dev/null 2>&1
