@@ -9,12 +9,19 @@
 set -u
 SID="${1:-}"
 if [ -n "$SID" ]; then
-  PANE=$(herdr pane list 2>/dev/null | python3 -c '
-import json, sys
-sid = sys.argv[1]
-for p in json.load(sys.stdin)["result"]["panes"]:
-    if (p.get("agent_session") or {}).get("value") == sid:
-        print(p["pane_id"]); break
+  NODE=$(command -v node || { [ -x "$HOME/.local/bin/node" ] && echo "$HOME/.local/bin/node"; } || echo /opt/homebrew/bin/node)
+  PANE=$(herdr pane list 2>/dev/null | "$NODE" -e '
+const py = (v) => v === null ? "None" : v === true ? "True" : v === false ? "False" : typeof v === "object" ? JSON.stringify(v) : String(v);
+const obj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const sid = process.argv[1];
+const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const panes = obj(d) && obj(d.result) && "panes" in d.result ? d.result.panes : process.exit(1);
+for (const p of panes) {
+  if (!obj(p)) process.exit(1);
+  const s = p.agent_session || {};
+  if (!obj(s)) process.exit(1);           // the old .get() on a non-dict stopped here too
+  if (s.value === sid) { if ("pane_id" in p) console.log(py(p.pane_id)); break; }
+}
 ' "$SID" 2>/dev/null)
   [ -n "$PANE" ] && { echo "$PANE"; exit 0; }
 fi
