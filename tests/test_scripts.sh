@@ -181,7 +181,7 @@ popup_setup() {
   setup
   for b in osascript afplay; do printf '#!/bin/bash\necho "%s $*" >> "$LOG"\n' "$b" > "$T/bin/$b"; chmod +x "$T/bin/$b"; done
   touch "$RUN/green-fn-cropped.png" "$RUN/thanos.gif" "$RUN/green-fn.mp3" "$RUN/fahhh.mp3"
-  rm -f "$RUN/green-fn-video.mov" "$RUN/.green_fn_next"
+  rm -f "$RUN/green-fn-video.mov" "$RUN/.green_fn_next" "$RUN/fail-video.mp4" "$RUN/.fail_next"
   rm "$T/bin/node"   # the popup reads the hook JSON with the real node
 }
 # The popup starts both in the background; wait for the card (or give up).
@@ -267,6 +267,41 @@ teardown
 popup_setup; touch "$RUN/green-fn-video.mov"; rm "$RUN/green-fn-cropped.png"
 approve; approve
 has   "with only the video, every approval shows it" "$LOG" "^osascript .*green-fn-video\\.mov"
+teardown
+
+# Requested changes take turns the same way: Thanos, the clip, Thanos.
+reject() { : > "$LOG"; review pr-reviewer 'VERDICT: REQUEST_CHANGES' | "$RUN/pr-popup.sh"; shown; sleep 0.2; }
+popup_setup; touch "$RUN/fail-video.mp4"
+reject
+has   "with the clip added, the first rejection shows Thanos" "$LOG" "^osascript .*thanos\\.gif"
+reject
+has   "the next shows the clip" "$LOG" "^osascript .*fail-video\\.mp4"
+hasnt "with its own sound, not fahhh" "$LOG" "^afplay"
+reject
+has   "and then Thanos again" "$LOG" "^osascript .*thanos\\.gif"
+teardown
+
+popup_setup; touch "$RUN/fail-video.mp4" "$RUN/green-fn-video.mov"
+reject; approve
+has   "approvals keep their own turn, apart from rejections" "$LOG" "^osascript .*green-fn-cropped\\.png"
+teardown
+
+popup_setup; touch "$RUN/fail-video.mp4"
+: > "$LOG"; review pr-reviewer 'VERDICT: REQUEST_CHANGES' | THANOS=video "$RUN/pr-popup.sh"; shown
+has   "THANOS=video always shows the clip" "$LOG" "^osascript .*fail-video\\.mp4"
+teardown
+
+# A clip's volume is the last argument to the card: 0.3, or POPUP_VOLUME, or the
+# older GREEN_FN_VOLUME. Thanos holds for 1.55s.
+popup_setup; touch "$RUN/fail-video.mp4"
+reject
+has "Thanos holds for 1.55s" "$LOG" "^osascript .*thanos\\.gif 1\\.55 "
+reject
+has "a clip plays at 0.3 by default" "$LOG" "^osascript .*fail-video\\.mp4 +0\\.3$"
+: > "$LOG"; review pr-reviewer 'VERDICT: REQUEST_CHANGES' | THANOS=video GREEN_FN_VOLUME=0.5 "$RUN/pr-popup.sh"; shown
+has "GREEN_FN_VOLUME still sets it" "$LOG" "^osascript .*fail-video\\.mp4 +0\\.5$"
+: > "$LOG"; review pr-reviewer 'VERDICT: REQUEST_CHANGES' | THANOS=video POPUP_VOLUME=0.8 GREEN_FN_VOLUME=0.5 "$RUN/pr-popup.sh"; shown
+has "POPUP_VOLUME wins over it" "$LOG" "^osascript .*fail-video\\.mp4 +0\\.8$"
 teardown
 
 echo
