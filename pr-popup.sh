@@ -1,6 +1,6 @@
 #!/bin/bash
 # Pop up a reaction when a pr-reviewer subagent finishes: GREEN FN for an approval
-# (a picture and a video, taking turns), a crumbling Thanos memoji with FAHHH for requested changes.
+# (a picture and a video, taking turns), Thanos with FAHHH or a clip for requested changes.
 # Claude Code SubagentStop hook: reads the hook JSON on stdin.
 #   pr-popup.sh --show [green|fail]   just shows one (for testing)
 set -u
@@ -40,12 +40,14 @@ console.log({ APPROVE: "green", REQUEST_CHANGES: "fail" }[verdict] || "none");
 ' 2>/dev/null)
 fi
 
-# An approval alternates between the GREEN FN picture and the green-screen video (keyed
-# out to see-through, with its own sound), one after the other. GREEN_FN=image or
-# GREEN_FN=video picks one for good. Either is skipped if its file is missing.
-next_green() {
-  local img="$DIR/green-fn-cropped.png" vid="$DIR/green-fn-video.mov" turn="$DIR/.green_fn_next"
-  case "${GREEN_FN:-cycle}" in
+# Each reaction has a picture and a video that take turns, one after the other:
+#   approval:          green-fn-cropped.png, then green-fn-video.mov (green screen keyed out)
+#   requested changes: thanos.gif,           then fail-video.mp4
+# GREEN_FN or THANOS set to image or video picks one for good. A missing file is skipped.
+# next_card <picture> <video> <turn file> <choice>: prints image or video, or nothing.
+next_card() {
+  local img="$1" vid="$2" turn="$3"
+  case "$4" in
     image) [ -f "$img" ] && echo image; return ;;
     video) [ -f "$vid" ] && echo video; return ;;
   esac
@@ -58,16 +60,22 @@ next_green() {
   fi
 }
 
+# HOLD is how long a picture stays fully visible; fading in and out adds about 1s.
+# A video plays to its end, with its own sound instead of the mp3.
 case "$RESULT" in
-  # HOLD is how long it stays fully visible; fading in and out adds about 1s.
   green)
-    case "$(next_green)" in
+    case "$(next_card "$DIR/green-fn-cropped.png" "$DIR/green-fn-video.mov" "$DIR/.green_fn_next" "${GREEN_FN:-cycle}")" in
       image) IMG="$DIR/green-fn-cropped.png"; SOUND="green-fn"; HOLD=4.0 ;;   # border trimmed off
-      video) IMG="$DIR/green-fn-video.mov";   SOUND="";         HOLD= ;;      # plays to its end, with its own sound
+      video) IMG="$DIR/green-fn-video.mov";   SOUND="";         HOLD= ;;
       *)     exit 0 ;;
     esac ;;
-  fail)  IMG="$DIR/thanos.gif"; SOUND="fahhh"; HOLD=1.55 ;;  # ~2.5s in all, the GIF plays once; white made see-through
-  *)     exit 0 ;;
+  fail)
+    case "$(next_card "$DIR/thanos.gif" "$DIR/fail-video.mp4" "$DIR/.fail_next" "${THANOS:-cycle}")" in
+      image) IMG="$DIR/thanos.gif";     SOUND="fahhh"; HOLD=1.55 ;;  # ~2.5s in all, the GIF plays once; white made see-through
+      video) IMG="$DIR/fail-video.mp4"; SOUND="";      HOLD= ;;
+      *)     exit 0 ;;
+    esac ;;
+  *) exit 0 ;;
 esac
 [ -f "$IMG" ] || exit 0
 
@@ -81,7 +89,7 @@ fi
 # A small card at the bottom centre of the screen that fades in, holds, and fades
 # out. A picture gets rounded corners; a video keeps its own shape (its background is
 # see-through) and holds until it finishes. Detached, so the hook returns straight away.
-nohup osascript -l JavaScript - "$IMG" "$HOLD" "${GREEN_FN_VOLUME:-0.3}" >/dev/null 2>&1 <<'JXA' &
+nohup osascript -l JavaScript - "$IMG" "$HOLD" "${POPUP_VOLUME:-${GREEN_FN_VOLUME:-0.3}}" >/dev/null 2>&1 <<'JXA' &
 function run(argv) {
   ObjC.import('Cocoa');
   ObjC.import('QuartzCore');
@@ -97,7 +105,7 @@ function run(argv) {
   if (isVideo) {
     const item = AV('AVPlayerItem').playerItemWithURL($.NSURL.fileURLWithPath(path));
     player = AV('AVPlayer').playerWithPlayerItem(item);
-    const vol = parseFloat(argv[2]);                 // the clip is mixed loud; GREEN_FN_VOLUME sets 0-1
+    const vol = parseFloat(argv[2]);                 // clips are mixed loud; POPUP_VOLUME sets 0-1
     player.volume = Number.isFinite(vol) ? Math.min(1, Math.max(0, vol)) : 0.3;
     const track = item.asset.tracksWithMediaType('vide').firstObject;
     h = 320; w = 222;
@@ -120,6 +128,8 @@ function run(argv) {
     layer.frame = $.NSMakeRect(0, 0, w, h);
     layer.videoGravity = 'AVLayerVideoGravityResizeAspect';
     view.layer.addSublayer(layer);
+    view.layer.cornerRadius = 20;                            // only shows on a clip with a background
+    view.layer.masksToBounds = true;
   } else {
     view = $.NSImageView.alloc.initWithFrame($.NSMakeRect(0, 0, w, h));
     view.image = $.NSImage.alloc.initWithContentsOfFile(path);
