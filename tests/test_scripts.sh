@@ -35,6 +35,7 @@ echo "herdr $*" >> "$LOG"
 case "$1 $2" in
   "pane list")  NONE='{"result":{"panes":[]}}'; echo "${FAKE_PANES:-$NONE}" ;;
   "pane split") [ -n "${SPLIT_FAILS:-}" ] && exit 1
+                [ -n "${SPLIT_JSON:-}" ] && { echo "$SPLIT_JSON"; exit 0; }
                 echo '{"result":{"pane":{"pane_id":"new-1"}}}' ;;
 esac
 SH
@@ -51,7 +52,7 @@ SH
   export PATH="$T/bin:$ORIG_PATH"
   # Keep dungeon mode on machines without Chrome, such as CI.
   export DUNGEON_CHROME=fake HERDR_PANE_ID=env-pane
-  unset RUNNER_MODE RUNNER_GAME CLAUDE_CODE_SESSION_KIND FAKE_PANES SPLIT_FAILS
+  unset RUNNER_MODE RUNNER_GAME CLAUDE_CODE_SESSION_KIND FAKE_PANES SPLIT_FAILS SPLIT_JSON
   # stop.sh talks to herdr's socket directly; point it somewhere with nothing listening.
   export HERDR_SOCKET_PATH="$T/herdr.sock"
   unset HERDR_ENV HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_BIN_PATH
@@ -91,6 +92,15 @@ cat > "$T/bin/herdr" <<'SH'
 echo "not json"
 SH
 check "survives herdr printing something unexpected" "$("$RUN/pane-for-session.sh" sess-1)" "env-pane"
+teardown
+
+setup; panes dash-pane "-v"
+check "a session id starting with a dash is a value, not a node option" "$("$RUN/pane-for-session.sh" -v)" "dash-pane"
+teardown
+
+setup
+export FAKE_PANES='{"result":{"panes":[{"pane_id":"empty","agent_session":[]},{"pane_id":"mine","agent_session":{"value":"sess-1"}}]}}'
+check "a pane with an empty session list is skipped, and the search goes on" "$("$RUN/pane-for-session.sh" sess-1)" "mine"
 teardown
 
 echo "start.sh"
@@ -148,6 +158,18 @@ setup; panes p sess-1; export SPLIT_FAILS=1
 hook sess-1 | "$RUN/start.sh"; sleep 0.3
 hasnt "starts no game if the pane couldn't open" "$LOG" "^node"
 check "and records no pane" "$(ls -A "$RUN" | grep -c '^\.pane_')" "0"
+teardown
+
+setup; panes p sess-1; export SPLIT_JSON='{"result":{"pane":{"pane_id":null}}}'
+hook sess-1 | "$RUN/start.sh"; sleep 0.3
+hasnt "a split that reports no pane id opens no game" "$LOG" "^node"
+hasnt "and names no pane None" "$LOG" "rename None"
+teardown
+
+setup; echo codemon > "$RUN/.last_game_env_pane_"
+echo '{"session_id":null}' | "$RUN/start.sh"; settle
+hasnt "a null session id doesn't become a save called None" "$LOG" "saves/None\\.json"
+has   "it keeps a save for the pane instead" "$LOG" "save=$HOME/.claude/runner/saves/env_pane_\\.json"
 teardown
 
 echo "stop.sh"
