@@ -47,7 +47,7 @@ Chrome's profile is thrown away every run, so the dungeon's save is copied out t
 
 ## Setup
 
-You need herdr, Node, and either Google Chrome or Playwright's headless shell. The headless shell is used if it's installed, since it's lighter. With no browser at all, it falls back to the bouncing sprite.
+You need herdr, Node, and either Google Chrome or Playwright's headless shell. The headless shell is used if it's installed, since it's lighter. With no browser at all, it falls back to the bouncing sprite, which is the one part that needs Python 3 (`bounce.py`); the hooks themselves no longer use Python.
 
 Clone this to `~/.claude/runner`, then add the hooks to `~/.claude/settings.json`:
 

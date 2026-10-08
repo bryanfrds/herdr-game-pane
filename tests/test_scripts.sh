@@ -35,12 +35,15 @@ echo "herdr $*" >> "$LOG"
 case "$1 $2" in
   "pane list")  NONE='{"result":{"panes":[]}}'; echo "${FAKE_PANES:-$NONE}" ;;
   "pane split") [ -n "${SPLIT_FAILS:-}" ] && exit 1
+                [ -n "${SPLIT_JSON:-}" ] && { echo "$SPLIT_JSON"; exit 0; }
                 echo '{"result":{"pane":{"pane_id":"new-1"}}}' ;;
 esac
 SH
-  # node: logs which game it was asked to draw, and where its save goes.
+  # node: logs which game it was asked to draw, and where its save goes. `node -e`
+  # is the scripts reading JSON, so that goes to the real node and isn't logged.
   cat > "$T/bin/node" <<'SH'
 #!/bin/bash
+[ "${1:-}" = -e ] && exec "$REAL_NODE" "$@"
 echo "node $* game=${DUNGEON_GAME:-} profile=${DUNGEON_PROFILE:-} save=${DUNGEON_SAVE:-}" >> "$LOG"
 SH
   # pkill: logged, never run, so a test can't stop a real game.
@@ -49,7 +52,7 @@ SH
   export PATH="$T/bin:$ORIG_PATH"
   # Keep dungeon mode on machines without Chrome, such as CI.
   export DUNGEON_CHROME=fake HERDR_PANE_ID=env-pane
-  unset RUNNER_MODE RUNNER_GAME CLAUDE_CODE_SESSION_KIND FAKE_PANES SPLIT_FAILS
+  unset RUNNER_MODE RUNNER_GAME CLAUDE_CODE_SESSION_KIND FAKE_PANES SPLIT_FAILS SPLIT_JSON
   # stop.sh talks to herdr's socket directly; point it somewhere with nothing listening.
   export HERDR_SOCKET_PATH="$T/herdr.sock"
   unset HERDR_ENV HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_BIN_PATH
@@ -66,6 +69,8 @@ panes() {   # panes <pane id> <session id>: what `herdr pane list` reports
 }
 hook() { echo "{\"session_id\":\"$1\"}"; }
 ORIG_PATH=$PATH
+REAL_NODE=$(command -v node) || { echo "the tests need node" >&2; exit 1; }
+export REAL_NODE
 
 echo "pane-for-session.sh"
 
@@ -87,6 +92,15 @@ cat > "$T/bin/herdr" <<'SH'
 echo "not json"
 SH
 check "survives herdr printing something unexpected" "$("$RUN/pane-for-session.sh" sess-1)" "env-pane"
+teardown
+
+setup; panes dash-pane "-v"
+check "a session id starting with a dash is a value, not a node option" "$("$RUN/pane-for-session.sh" -v)" "dash-pane"
+teardown
+
+setup
+export FAKE_PANES='{"result":{"panes":[{"pane_id":"empty","agent_session":[]},{"pane_id":"mine","agent_session":{"value":"sess-1"}}]}}'
+check "a pane with an empty session list is skipped, and the search goes on" "$("$RUN/pane-for-session.sh" sess-1)" "mine"
 teardown
 
 echo "start.sh"
@@ -146,6 +160,18 @@ hasnt "starts no game if the pane couldn't open" "$LOG" "^node"
 check "and records no pane" "$(ls -A "$RUN" | grep -c '^\.pane_')" "0"
 teardown
 
+setup; panes p sess-1; export SPLIT_JSON='{"result":{"pane":{"pane_id":null}}}'
+hook sess-1 | "$RUN/start.sh"; sleep 0.3
+hasnt "a split that reports no pane id opens no game" "$LOG" "^node"
+hasnt "and names no pane None" "$LOG" "rename None"
+teardown
+
+setup; echo codemon > "$RUN/.last_game_env_pane_"
+echo '{"session_id":null}' | "$RUN/start.sh"; settle
+hasnt "a null session id doesn't become a save called None" "$LOG" "saves/None\\.json"
+has   "it keeps a save for the pane instead" "$LOG" "save=$HOME/.claude/runner/saves/env_pane_\\.json"
+teardown
+
 echo "stop.sh"
 
 setup; panes p sess-1; echo game-pane > "$RUN/.pane_p_"
@@ -160,6 +186,53 @@ setup; panes p sess-1; echo mine > "$RUN/.pane_p_"; echo theirs > "$RUN/.pane_ot
 hook sess-1 | "$RUN/stop.sh"
 hasnt "leaves other chats' games open" "$LOG" "pane close theirs"
 teardown
+
+# A stand-in for herdr's socket at $HERDR_SOCKET_PATH. Each connection's first line
+# goes to $T/sock.log; "reply" answers it, "close" hangs up without a word.
+sock_server() {
+  rm -f "$T/sock.log" "$T/sock.ready"
+  "$REAL_NODE" -e '
+const net = require("net"), fs = require("fs");
+const [path, log, mode] = process.argv.slice(1);
+net.createServer((c) => {
+  let buf = "";
+  c.on("data", (d) => {
+    buf += d;
+    if (!buf.includes("\n")) return;
+    fs.appendFileSync(log, buf);
+    if (mode === "reply") c.end("{\"id\":\"stop\",\"result\":{}}\n"); else c.destroy();
+  });
+}).listen(path, () => fs.writeFileSync(log.replace(/log$/, "ready"), ""));
+setTimeout(() => process.exit(0), 15000);
+' -- "$HERDR_SOCKET_PATH" "$T/sock.log" "$1" &
+  SOCK_PID=$!; disown
+  for _ in $(seq 50); do [ -f "$T/sock.ready" ] && return; sleep 0.1; done
+}
+# What the socket was asked, one line per connection: method pane layer, or "bad line".
+sock_asked() {
+  "$REAL_NODE" -e '
+for (const line of require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean)) {
+  try { const m = JSON.parse(line); console.log(m.method, m.params.pane_id, m.params.layer_id); }
+  catch { console.log("bad line"); }
+}' < "$T/sock.log"
+}
+now_ms() { "$REAL_NODE" -e 'console.log(Date.now())'; }
+
+setup; panes p sess-1; sock_server reply
+hook sess-1 | "$RUN/stop.sh"
+check "asks herdr's socket to clear both layers, one line each" "$(sock_asked)" \
+  "pane.graphics.clear p runner
+pane.graphics.clear p dungeon"
+check "each request ends its line" "$(tail -c 1 "$T/sock.log" | od -An -c | tr -d ' ')" '\n'
+kill $SOCK_PID 2>/dev/null; teardown
+
+setup; panes p sess-1; sock_server close
+START=$(now_ms); hook sess-1 | "$RUN/stop.sh"; TOOK=$(( $(now_ms) - START ))
+check "if the socket hangs up without replying, it still clears both layers" "$(sock_asked)" \
+  "pane.graphics.clear p runner
+pane.graphics.clear p dungeon"
+check "without waiting out the 2s timeout" "$([ "$TOOK" -lt 1500 ] && echo fast || echo "slow: ${TOOK}ms")" "fast"
+kill $SOCK_PID 2>/dev/null; teardown
 
 echo "play.sh"
 
@@ -182,7 +255,6 @@ popup_setup() {
   for b in osascript afplay; do printf '#!/bin/bash\necho "%s $*" >> "$LOG"\n' "$b" > "$T/bin/$b"; chmod +x "$T/bin/$b"; done
   touch "$RUN/green-fn-cropped.png" "$RUN/thanos.gif" "$RUN/green-fn.mp3" "$RUN/fahhh.mp3"
   rm -f "$RUN/green-fn-video.mov" "$RUN/.green_fn_next" "$RUN/fail-video.mp4" "$RUN/.fail_next"
-  rm "$T/bin/node"   # the popup reads the hook JSON with the real node
 }
 # The popup starts both in the background; wait for the card (or give up).
 shown() { for _ in $(seq 30); do grep -q '^osascript' "$LOG" && return; sleep 0.1; done; }

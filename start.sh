@@ -14,7 +14,14 @@ DIR="$HOME/.claude/runner"
 # The hook's JSON arrives once on stdin; keep it, both the pane lookup and the
 # save key need the session id from it.
 HOOK_INPUT=$(cat)
-SESSION_ID=$(printf '%s' "$HOOK_INPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id",""))' 2>/dev/null)
+NODE=$(command -v node || { [ -x "$HOME/.local/bin/node" ] && echo "$HOME/.local/bin/node"; } || echo /opt/homebrew/bin/node)
+SESSION_ID=$(printf '%s' "$HOOK_INPUT" | "$NODE" -e '
+const py = (v) => v === null ? "" : v === true ? "True" : v === false ? "False" : typeof v === "object" ? JSON.stringify(v) : String(v);   // null: empty, so [ -n ] catches it
+const obj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const d = JSON.parse(require("fs").readFileSync(0, "utf8"));   // bad JSON: throws, prints nothing
+if (!obj(d)) process.exit(1);
+console.log("session_id" in d ? py(d.session_id) : "");
+' 2>/dev/null)
 HERDR_PANE_ID=$("$DIR/pane-for-session.sh" "$SESSION_ID")
 [ -n "$HERDR_PANE_ID" ] || exit 0
 
@@ -36,7 +43,14 @@ fi
 if [ "$MODE" = "pane" ] || [ "$MODE" = "dungeon" ]; then
   RATIO=0.85; [ "$MODE" = "dungeon" ] && RATIO=0.6
   NEW=$(herdr pane split "$HERDR_PANE_ID" --direction right --ratio "$RATIO" 2>/dev/null \
-        | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])' 2>/dev/null)
+        | "$NODE" -e '
+const py = (v) => v === null ? "" : v === true ? "True" : v === false ? "False" : typeof v === "object" ? JSON.stringify(v) : String(v);   // null: empty, so [ -n ] catches it
+const obj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const r = obj(d) && "result" in d ? d.result : process.exit(1);
+const p = obj(r) && "pane" in r ? r.pane : process.exit(1);
+console.log(obj(p) && "pane_id" in p ? py(p.pane_id) : process.exit(1));
+' 2>/dev/null)
   [ -n "$NEW" ] || exit 0
   echo "$NEW" > "$DIR/.pane_$SLUG"
   herdr pane rename "$NEW" "$([ "$MODE" = dungeon ] && echo dungeon || echo runner)" >/dev/null 2>&1
@@ -52,7 +66,6 @@ if [ "$MODE" = "dungeon" ]; then
   # so a resumed chat picks its own hero back up. Falls back to the pane id.
   SID=$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9-' '_' | sed 's/_*$//')
   mkdir -p "$DIR/saves"
-  NODE=$(command -v node || echo "$HOME/.local/bin/node")
 
   # Pick a game for this turn. RUNNER_GAME pins one (dungeon|codemon); otherwise
   # it alternates at random, so you get a different one most turns.
