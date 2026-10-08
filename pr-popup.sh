@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pop up a reaction when a pr-reviewer subagent finishes: GREEN FN for an
+# Pop up a reaction when a pr-reviewer subagent finishes: GREEN FN (picture and video, in turn) for an
 # approval, a crumbling Thanos memoji with FAHHH for requested changes.
 # Claude Code SubagentStop hook: reads the hook JSON on stdin.
 #   pr-popup.sh --show [green|fail]   just shows one (for testing)
@@ -11,77 +11,121 @@ else
   INPUT=$(cat)
   # Only pr-reviewer, and only APPROVE or REQUEST_CHANGES. The final message is read from
   # the hook payload, or else the last assistant entry in the agent's transcript.
-  RESULT=$(printf '%s' "$INPUT" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-kind = d.get("agent_type") or d.get("subagent_type") or ""
-if kind != "pr-reviewer":                 # no type at all counts as not a review
-    print("none"); sys.exit()
-import re
-text = d.get("last_assistant_message") or ""
-path = d.get("agent_transcript_path") or ""
-# The verdict can sit in plain text or inside the hand-back tool call, so look
-# at the whole serialized entry, and use the last one that states a verdict.
-if "VERDICT:" not in text and path:
-    try:
-        for line in open(path):
-            e = json.loads(line)
-            if e.get("type") == "assistant":
-                blob = json.dumps(e.get("message", {}).get("content", ""))
-                if "VERDICT:" in blob:
-                    text = blob
-    except (OSError, ValueError):
-        pass
-text = text.replace("\\n", "\n")
-# The word must end the line, so a quoted template such as
-# "VERDICT: APPROVE | REQUEST_CHANGES | COMMENT" does not read as an approval.
-m = re.findall(r"VERDICT:[ \t]*([A-Z_]+)[ \t]*$", text, re.M)
-verdict = m[-1] if m else ""
-print({"APPROVE": "green", "REQUEST_CHANGES": "fail"}.get(verdict, "none"))
+  RESULT=$(printf '%s' "$INPUT" | node -e '
+let d; try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { d = {}; }
+const kind = d.agent_type || d.subagent_type || "";
+if (kind !== "pr-reviewer") { console.log("none"); process.exit(); }   // no type counts as not a review
+let text = d.last_assistant_message || "";
+const path = d.agent_transcript_path || "";
+// The verdict can sit in plain text or inside the hand-back tool call, so look at the
+// whole serialized entry, and use the last one that states a verdict.
+if (!text.includes("VERDICT:") && path) {
+  try {
+    for (const line of require("fs").readFileSync(path, "utf8").split("\n")) {
+      let e; try { e = JSON.parse(line); } catch { continue; }
+      if (e.type !== "assistant") continue;
+      const blob = JSON.stringify((e.message || {}).content || "");
+      if (blob.includes("VERDICT:")) text = blob;
+    }
+  } catch {}
+}
+text = text.split("\\n").join("\n");
+// The word must end the line, so a quoted template such as
+// "VERDICT: APPROVE | REQUEST_CHANGES | COMMENT" does not read as an approval.
+const m = [...text.matchAll(/VERDICT:[ \t]*([A-Z_]+)[ \t]*$/gm)];
+const verdict = m.length ? m[m.length - 1][1] : "";
+console.log({ APPROVE: "green", REQUEST_CHANGES: "fail" }[verdict] || "none");
 ' 2>/dev/null)
 fi
 
+# An approval alternates between the GREEN FN picture and the green-screen video (keyed
+# out to see-through, with its own sound), one after the other. GREEN_FN=image or
+# GREEN_FN=video picks one for good. Either is skipped if its file is missing.
+next_green() {
+  local img="$DIR/green-fn-cropped.png" vid="$DIR/green-fn-video.mov" turn="$DIR/.green_fn_next"
+  case "${GREEN_FN:-cycle}" in
+    image) [ -f "$img" ] && echo image; return ;;
+    video) [ -f "$vid" ] && echo video; return ;;
+  esac
+  if [ -f "$img" ] && [ -f "$vid" ]; then
+    local pick; pick=$(cat "$turn" 2>/dev/null); [ "$pick" = video ] || pick=image
+    [ "$pick" = image ] && echo video > "$turn" || echo image > "$turn"
+    echo "$pick"
+  elif [ -f "$vid" ]; then echo video
+  elif [ -f "$img" ]; then echo image
+  fi
+}
+
 case "$RESULT" in
   # HOLD is how long it stays fully visible; fading in and out adds about 1s.
-  green) IMG="$DIR/green-fn-cropped.png"; SOUND="green-fn"; HOLD=4.0 ;;   # border trimmed off
-  fail)  IMG="$DIR/thanos.gif";            SOUND="fahhh";    HOLD=1.55 ;;  # ~2.5s in all, the GIF plays once; white made see-through
+  green)
+    case "$(next_green)" in
+      image) IMG="$DIR/green-fn-cropped.png"; SOUND="green-fn"; HOLD=4.0 ;;   # border trimmed off
+      video) IMG="$DIR/green-fn-video.mov";   SOUND="";         HOLD=0 ;;     # plays to its end, with its own sound
+      *)     exit 0 ;;
+    esac ;;
+  fail)  IMG="$DIR/thanos.gif"; SOUND="fahhh"; HOLD=1.55 ;;  # ~2.5s in all, the GIF plays once; white made see-through
   *)     exit 0 ;;
 esac
 [ -f "$IMG" ] || exit 0
 
 # The sound, if there is one: <name>.mp3/.m4a/.wav/.aiff next to this script.
-for SND in "$DIR/$SOUND".{mp3,m4a,wav,aiff}; do
-  [ -f "$SND" ] && { nohup afplay "$SND" >/dev/null 2>&1 & break; }
-done
+if [ -n "$SOUND" ]; then
+  for SND in "$DIR/$SOUND".{mp3,m4a,wav,aiff}; do
+    [ -f "$SND" ] && { nohup afplay "$SND" >/dev/null 2>&1 & break; }
+  done
+fi
 
-# A small rounded card at the bottom centre of the screen that fades in, holds,
-# and fades out. Detached, so the hook returns straight away.
-nohup osascript -l JavaScript - "$IMG" "$HOLD" >/dev/null 2>&1 <<'JXA' &
+# A small card at the bottom centre of the screen that fades in, holds, and fades
+# out. A picture gets rounded corners; a video keeps its own shape (its background is
+# see-through) and holds until it finishes. Detached, so the hook returns straight away.
+nohup osascript -l JavaScript - "$IMG" "$HOLD" "${GREEN_FN_VOLUME:-0.3}" >/dev/null 2>&1 <<'JXA' &
 function run(argv) {
   ObjC.import('Cocoa');
   ObjC.import('QuartzCore');
+  // JXA doesn't bridge AVFoundation's classes by name, so load it and look them up.
+  $.NSBundle.bundleWithPath('/System/Library/Frameworks/AVFoundation.framework').load;
+  const AV = (name) => $.NSClassFromString(name);
   const app = $.NSApplication.sharedApplication;
   app.setActivationPolicy($.NSApplicationActivationPolicyAccessory);
-  const img = $.NSImage.alloc.initWithContentsOfFile(argv[0]);
-  const side = 240;
+  const path = argv[0];
+  const isVideo = /\.(mov|mp4|m4v)$/i.test(path);
   const area = $.NSScreen.mainScreen.visibleFrame;          // above the Dock
-  const rect = $.NSMakeRect(area.origin.x + (area.size.width - side) / 2,
-                            area.origin.y + 48, side, side);
+  let player = null, w = 240, h = 240;
+  if (isVideo) {
+    const item = AV('AVPlayerItem').playerItemWithURL($.NSURL.fileURLWithPath(path));
+    player = AV('AVPlayer').playerWithPlayerItem(item);
+    player.volume = Number(argv[2]) || 0.3;        // the clip is mixed loud; GREEN_FN_VOLUME sets 0-1
+    const track = item.asset.tracksWithMediaType('vide').firstObject;
+    const size = track.naturalSize;
+    h = 320; w = Math.round(h * size.width / size.height) || 222;
+  }
+  const rect = $.NSMakeRect(area.origin.x + (area.size.width - w) / 2, area.origin.y + 48, w, h);
   const win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer(
     rect, $.NSWindowStyleMaskBorderless, $.NSBackingStoreBuffered, false);
   win.level = $.NSStatusWindowLevel;
   win.opaque = false;
   win.backgroundColor = $.NSColor.clearColor;
-  win.hasShadow = true;
+  win.hasShadow = !isVideo;                                  // a shadow would outline the empty box
   win.ignoresMouseEvents = true;                             // never steals a click
   win.alphaValue = 0;
-  const view = $.NSImageView.alloc.initWithFrame($.NSMakeRect(0, 0, side, side));
-  view.image = img;
-  view.imageScaling = $.NSImageScaleProportionallyUpOrDown;
-  view.animates = true;                                      // GIFs play
-  view.wantsLayer = true;
-  view.layer.cornerRadius = 20;
-  view.layer.masksToBounds = true;
+  let view;
+  if (isVideo) {
+    view = $.NSView.alloc.initWithFrame($.NSMakeRect(0, 0, w, h));
+    view.wantsLayer = true;
+    const layer = AV('AVPlayerLayer').playerLayerWithPlayer(player);
+    layer.frame = $.NSMakeRect(0, 0, w, h);
+    layer.videoGravity = 'AVLayerVideoGravityResizeAspect';
+    view.layer.addSublayer(layer);
+  } else {
+    view = $.NSImageView.alloc.initWithFrame($.NSMakeRect(0, 0, w, h));
+    view.image = $.NSImage.alloc.initWithContentsOfFile(path);
+    view.imageScaling = $.NSImageScaleProportionallyUpOrDown;
+    view.animates = true;                                    // GIFs play
+    view.wantsLayer = true;
+    view.layer.cornerRadius = 20;
+    view.layer.masksToBounds = true;
+  }
   win.contentView = view;
   win.orderFrontRegardless;
   const loop = $.NSRunLoop.currentRunLoop;
@@ -94,8 +138,14 @@ function run(argv) {
       wait(1 / 60);
     }
   };
+  if (player) player.play;
   fade(0, 1, 0.35);
-  wait(Number(argv[1]) || 2);
+  if (player) {
+    // The player stops itself at the end; 30s caps a file that never plays.
+    for (let t = 0; t < 30 && !(t > 0.5 && player.rate === 0); t += 0.1) wait(0.1);
+  } else {
+    wait(Number(argv[1]) || 2);
+  }
   fade(1, 0, 0.6);
   win.orderOut(null);
 }
