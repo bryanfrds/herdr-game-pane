@@ -291,6 +291,19 @@ popup_setup; touch "$RUN/fail-video.mp4"
 has   "THANOS=video always shows the clip" "$LOG" "^osascript .*fail-video\\.mp4"
 teardown
 
+# A clip's volume is the last argument to the card: 0.3, or POPUP_VOLUME, or the
+# older GREEN_FN_VOLUME. Thanos holds for 1.55s.
+popup_setup; touch "$RUN/fail-video.mp4"
+reject
+has "Thanos holds for 1.55s" "$LOG" "^osascript .*thanos\\.gif 1\\.55 "
+reject
+has "a clip plays at 0.3 by default" "$LOG" "^osascript .*fail-video\\.mp4 +0\\.3$"
+: > "$LOG"; review pr-reviewer 'VERDICT: REQUEST_CHANGES' | THANOS=video GREEN_FN_VOLUME=0.5 "$RUN/pr-popup.sh"; shown
+has "GREEN_FN_VOLUME still sets it" "$LOG" "^osascript .*fail-video\\.mp4 +0\\.5$"
+: > "$LOG"; review pr-reviewer 'VERDICT: REQUEST_CHANGES' | THANOS=video POPUP_VOLUME=0.8 GREEN_FN_VOLUME=0.5 "$RUN/pr-popup.sh"; shown
+has "POPUP_VOLUME wins over it" "$LOG" "^osascript .*fail-video\\.mp4 +0\\.8$"
+teardown
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
