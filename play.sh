@@ -29,7 +29,7 @@ esac
 NODE=$(command -v node || { [ -x "$HOME/.local/bin/node" ] && echo "$HOME/.local/bin/node"; } || echo /opt/homebrew/bin/node)
 NEW=$(herdr pane split "$HERDR_PANE_ID" --direction right --ratio 0.6 2>/dev/null \
       | "$NODE" -e '
-const py = (v) => v === null ? "None" : v === true ? "True" : v === false ? "False" : typeof v === "object" ? JSON.stringify(v) : String(v);
+const py = (v) => v === null ? "" : v === true ? "True" : v === false ? "False" : typeof v === "object" ? JSON.stringify(v) : String(v);   // null: empty, so [ -n ] catches it
 const obj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
 const r = obj(d) && "result" in d ? d.result : process.exit(1);

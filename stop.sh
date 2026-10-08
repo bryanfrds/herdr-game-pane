@@ -6,7 +6,7 @@ DIR="$HOME/.claude/runner"
 # Same lookup as start.sh, so the pane it opened is the one closed here.
 NODE=$(command -v node || { [ -x "$HOME/.local/bin/node" ] && echo "$HOME/.local/bin/node"; } || echo /opt/homebrew/bin/node)
 SESSION_ID=$("$NODE" -e '
-const py = (v) => v === null ? "None" : v === true ? "True" : v === false ? "False" : typeof v === "object" ? JSON.stringify(v) : String(v);
+const py = (v) => v === null ? "" : v === true ? "True" : v === false ? "False" : typeof v === "object" ? JSON.stringify(v) : String(v);   // null: empty, so [ -n ] catches it
 const obj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const d = JSON.parse(require("fs").readFileSync(0, "utf8"));   // bad JSON: throws, prints nothing
 if (!obj(d)) process.exit(1);
@@ -44,7 +44,7 @@ const clear = (layer) => new Promise((done) => {
   s.on("close", () => { clearTimeout(timer); done(); });   // closed without replying: next layer
 });
 (async () => { for (const layer of ["runner", "dungeon"]) await clear(layer); })();
-' "$P" >/dev/null 2>&1
+' -- "$P" >/dev/null 2>&1
 done
 
 if [ -f "$PANEF" ]; then
