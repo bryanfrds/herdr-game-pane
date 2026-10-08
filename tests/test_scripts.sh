@@ -38,9 +38,11 @@ case "$1 $2" in
                 echo '{"result":{"pane":{"pane_id":"new-1"}}}' ;;
 esac
 SH
-  # node: logs which game it was asked to draw, and where its save goes.
+  # node: logs which game it was asked to draw, and where its save goes. `node -e`
+  # is the scripts reading JSON, so that goes to the real node and isn't logged.
   cat > "$T/bin/node" <<'SH'
 #!/bin/bash
+[ "${1:-}" = -e ] && exec "$REAL_NODE" "$@"
 echo "node $* game=${DUNGEON_GAME:-} profile=${DUNGEON_PROFILE:-} save=${DUNGEON_SAVE:-}" >> "$LOG"
 SH
   # pkill: logged, never run, so a test can't stop a real game.
@@ -66,6 +68,8 @@ panes() {   # panes <pane id> <session id>: what `herdr pane list` reports
 }
 hook() { echo "{\"session_id\":\"$1\"}"; }
 ORIG_PATH=$PATH
+REAL_NODE=$(command -v node) || { echo "the tests need node" >&2; exit 1; }
+export REAL_NODE
 
 echo "pane-for-session.sh"
 
@@ -182,7 +186,6 @@ popup_setup() {
   for b in osascript afplay; do printf '#!/bin/bash\necho "%s $*" >> "$LOG"\n' "$b" > "$T/bin/$b"; chmod +x "$T/bin/$b"; done
   touch "$RUN/green-fn-cropped.png" "$RUN/thanos.gif" "$RUN/green-fn.mp3" "$RUN/fahhh.mp3"
   rm -f "$RUN/green-fn-video.mov" "$RUN/.green_fn_next" "$RUN/fail-video.mp4" "$RUN/.fail_next"
-  rm "$T/bin/node"   # the popup reads the hook JSON with the real node
 }
 # The popup starts both in the background; wait for the card (or give up).
 shown() { for _ in $(seq 30); do grep -q '^osascript' "$LOG" && return; sleep 0.1; done; }
