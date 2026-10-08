@@ -165,6 +165,53 @@ hook sess-1 | "$RUN/stop.sh"
 hasnt "leaves other chats' games open" "$LOG" "pane close theirs"
 teardown
 
+# A stand-in for herdr's socket at $HERDR_SOCKET_PATH. Each connection's first line
+# goes to $T/sock.log; "reply" answers it, "close" hangs up without a word.
+sock_server() {
+  rm -f "$T/sock.log" "$T/sock.ready"
+  "$REAL_NODE" -e '
+const net = require("net"), fs = require("fs");
+const [path, log, mode] = process.argv.slice(1);
+net.createServer((c) => {
+  let buf = "";
+  c.on("data", (d) => {
+    buf += d;
+    if (!buf.includes("\n")) return;
+    fs.appendFileSync(log, buf);
+    if (mode === "reply") c.end("{\"id\":\"stop\",\"result\":{}}\n"); else c.destroy();
+  });
+}).listen(path, () => fs.writeFileSync(log.replace(/log$/, "ready"), ""));
+setTimeout(() => process.exit(0), 15000);
+' -- "$HERDR_SOCKET_PATH" "$T/sock.log" "$1" &
+  SOCK_PID=$!; disown
+  for _ in $(seq 50); do [ -f "$T/sock.ready" ] && return; sleep 0.1; done
+}
+# What the socket was asked, one line per connection: method pane layer, or "bad line".
+sock_asked() {
+  "$REAL_NODE" -e '
+for (const line of require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean)) {
+  try { const m = JSON.parse(line); console.log(m.method, m.params.pane_id, m.params.layer_id); }
+  catch { console.log("bad line"); }
+}' < "$T/sock.log"
+}
+now_ms() { "$REAL_NODE" -e 'console.log(Date.now())'; }
+
+setup; panes p sess-1; sock_server reply
+hook sess-1 | "$RUN/stop.sh"
+check "asks herdr's socket to clear both layers, one line each" "$(sock_asked)" \
+  "pane.graphics.clear p runner
+pane.graphics.clear p dungeon"
+check "each request ends its line" "$(tail -c 1 "$T/sock.log" | od -An -c | tr -d ' ')" '\n'
+kill $SOCK_PID 2>/dev/null; teardown
+
+setup; panes p sess-1; sock_server close
+START=$(now_ms); hook sess-1 | "$RUN/stop.sh"; TOOK=$(( $(now_ms) - START ))
+check "if the socket hangs up without replying, it still clears both layers" "$(sock_asked)" \
+  "pane.graphics.clear p runner
+pane.graphics.clear p dungeon"
+check "without waiting out the 2s timeout" "$([ "$TOOK" -lt 1500 ] && echo fast || echo "slow: ${TOOK}ms")" "fast"
+kill $SOCK_PID 2>/dev/null; teardown
+
 echo "play.sh"
 
 setup
