@@ -19,7 +19,7 @@ The games alternate strictly instead of at random. I tried a coin flip first, bu
 
 ## How the game gets into a terminal
 
-`dungeon.mjs` opens a headless Chrome, loads the game's `index.html`, and screenshots it about 8 times a second. Each screenshot goes to the pane through herdr's graphics API, over its unix socket.
+`dungeon.mjs` opens a headless Chrome, loads the game's `index.html`, and screenshots it about 8 times a second. Each screenshot is written to the pane's terminal as a Kitty graphics image, which herdr (0.9.2 or later) draws. Two image ids take turns, so a frame is up before the one it replaces is deleted and the pane doesn't flicker.
 
 - **Dungeon:** the game already plays itself. The script just presses respawn when the hero dies.
 - **CodeMon:** the script drives it, walking around, starting fights and picking moves. During a fight it crops to the battle screen so the fight fills the pane. The rest of the time it shows the whole board.
@@ -27,7 +27,7 @@ The games alternate strictly instead of at random. I tried a coin flip first, bu
 A few things that were fiddly to get right:
 
 - **Window size:** the browser window is sized to the pane, so the game lays itself out for it. A tall, narrow pane gets a tall layout, not a squashed wide one.
-- **Crop shape:** the screenshot is cropped to the pane's exact shape. If the shapes don't match, herdr letterboxes the image, and the shell prompt shows through the gaps.
+- **Crop shape:** the screenshot is cropped to the pane's exact shape. If the shapes don't match, the image is letterboxed and the gaps are left empty.
 - **Below the window:** it captures past the bottom of the browser window. Without that, the bottom of a tall dungeon map came out blank and the hero kept vanishing off the edge.
 - **Memory:** Chrome runs with most of its background features switched off and a small JavaScript heap, so each game uses a lot less memory than a normal tab.
 
@@ -41,7 +41,7 @@ Chrome's profile is thrown away every run, so the dungeon's save is copied out t
 - `start.sh` / `stop.sh`: the two Claude Code hooks.
 - `pane-for-session.sh`: finds the herdr pane a Claude session is really in (see above).
 - `play.sh`: starts a game whenever you want one, not just while Claude works. `play.sh codemon`, `play.sh dungeon`, or `play.sh stop`.
-- `bounce.py`: an older, lighter mode that bounces a sprite around the pane instead of running a game. It needs PNGs in `sprites/`, which aren't in the repo.
+- `bounce.py`: an older, lighter mode that bounces a sprite around the pane instead of running a game. It needs PNGs in `sprites/`, which aren't in the repo. It still uses herdr's old graphics API, so it draws nothing on herdr 0.9.2 or later.
 - `pr-popup.sh`: an optional extra, not part of the game pane. When a `pr-reviewer` subagent finishes, it shows a small card at the bottom of the screen with a sound: `green-fn-cropped.png` and `green-fn.mp3` for an approval (taking turns with `green-fn-video.mov`, a clip with a see-through background that plays with its own sound, at 30% volume; `GREEN_FN=image` or `GREEN_FN=video` picks one), `thanos.gif` and `fahhh.mp3` for requested changes (taking turns with `fail-video.mp4`, shown as a rounded card with its own sound; `THANOS=image` or `THANOS=video` picks one). Videos play at 30% volume; `POPUP_VOLUME` sets 0-1 (`GREEN_FN_VOLUME` still works as a fallback, and now covers both clips). Those files are your own and aren't in the repo; without the image it does nothing. Hook it up as a `SubagentStop` hook (`bash ~/.claude/runner/pr-popup.sh`), and try it with `pr-popup.sh --show green` or `--show fail`. macOS only.
 - `tests/`: tests for the hook scripts (see Tests below).
 
@@ -67,7 +67,7 @@ All of these are environment variables:
 | Variable | What it does |
 |---|---|
 | `RUNNER_GAME` | `codemon` or `dungeon` to always play that one game |
-| `RUNNER_MODE` | `overlay` bounces the sprite over the Claude pane; `pane` bounces it in a side pane |
+| `RUNNER_MODE` | `overlay` bounces the sprite over the Claude pane; `pane` bounces it in a side pane (both need herdr before 0.9.2) |
 | `DUNGEON_GAME` | path to a different game's `index.html` |
 | `DUNGEON_CHROME` | path to a specific Chrome binary |
 | `DUNGEON_DEBUG` | `1` logs layout info and any errors from the auto-player |
