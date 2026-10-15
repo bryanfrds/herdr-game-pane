@@ -173,7 +173,10 @@ const PROFILES = {
 const PROFILE = PROFILES[process.env.DUNGEON_PROFILE || 'dungeon'] || PROFILES.dungeon;
 const TICK_EVERY = Number(process.env.DUNGEON_TICK_FRAMES || 6);   // frames between ticks
 
-const FPS = 8;
+// Frames now go through the pane's terminal, which herdr parses like any output,
+// so they are kept small and few: at 8 a second at full size herdr stopped responding.
+const FPS = Number(process.env.DUNGEON_FPS) || 4;
+const PX_PER_COL = 8;   // image pixels per terminal column; more is wasted on a cell
 const CELL_ASPECT = 2.0;   // terminal cell height / width, in pixels
 
 if (!PANE) { console.error('no pane id'); process.exit(1); }
@@ -404,6 +407,7 @@ async function main() {
   let deadSince = 0;
   let failures = 0;                                                   // herdr misses in a row
   let placed = null;
+  let lastFrame = null;
   while (!stopping && size && failures < 3) {
     const t0 = Date.now();
     if (frame % (FPS * 2) === 0) {                                    // follow resizes
@@ -444,6 +448,8 @@ async function main() {
     // captureBeyondViewport: the crop can run past the bottom of the viewport
     // (a portrait map under stacked side panels), and without this Chrome leaves
     // everything below the fold blank - the lower half of the map, hero included.
+    // Scale the shot down to about the pane's own pixel size.
+    shot.scale = Math.min(1, (size.cols * PX_PER_COL) / shot.width);
     const { data } = await S('Page.captureScreenshot',
                              { format: 'png', clip: shot, captureBeyondViewport: true });
     if (process.env.DUNGEON_DUMP) writeFileSync(process.env.DUNGEON_DUMP, Buffer.from(data, 'base64'));
@@ -460,11 +466,13 @@ async function main() {
       col: Math.max(0, Math.floor((size.cols - cols) / 2)),
       cols, rows,
     };
-    if (placed && (placed.cols !== cols || placed.rows !== rows || placed.row !== place.row || placed.col !== place.col)) {
-      erase(tty, true);                                                // resized: no stale edges
-    }
+    const moved = !placed || placed.cols !== cols || placed.rows !== rows || placed.row !== place.row || placed.col !== place.col;
+    if (placed && moved) erase(tty, true);                             // resized: no stale edges
     if (stopping) break;                                               // shutdown already cleared the pane
-    try { draw(tty, data, place); } catch { break; }                   // pane closed
+    if (moved || data !== lastFrame) {                               // an unchanged frame costs herdr nothing
+      try { draw(tty, data, place); } catch { break; }                 // pane closed
+      lastFrame = data;
+    }
     placed = place;
 
     frame++;
