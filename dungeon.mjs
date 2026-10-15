@@ -3,7 +3,8 @@
 // Headless Chrome runs the game (auto-play is on by default); we screenshot the
 // play area a few times a second and push each frame as a PNG image layer.
 // Chrome talks over --remote-debugging-pipe, so it dies with this process.
-import { spawn, execSync } from 'node:child_process';
+import { spawn, execSync, execFileSync } from 'node:child_process';
+import { frame as encodeFrame, eraseAll } from './kitty.mjs';
 import { connect } from 'node:net';
 import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, renameSync, existsSync, openSync, writeSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -216,32 +217,26 @@ function fitToPane(clip, size) {
 // so it writes to the terminal of the pane's shell instead.
 function paneTty() {
   try {
-    const info = JSON.parse(execSync(`herdr pane process-info --pane ${JSON.stringify(PANE)}`).toString());
-    const pid = info?.result?.process_info?.shell_pid;
-    const tty = pid && execSync(`ps -o tty= -p ${Number(pid)}`).toString().trim();
+    const run = (cmd, args) => execFileSync(cmd, args, { timeout: 5000 }).toString();
+    const pid = JSON.parse(run('herdr', ['pane', 'process-info', '--pane', PANE]))?.result?.process_info?.shell_pid;
+    const tty = Number.isInteger(pid) && run('ps', ['-o', 'tty=', '-p', String(pid)]).trim();
     return tty && tty !== '??' ? openSync(`/dev/${tty}`, 'w') : null;
   } catch { return null; }
 }
-// Two image ids taken in turn: each frame lands before the one it replaces is deleted,
-// so the pane never shows a gap between frames.
-const IMAGES = [7, 8];
-let shown = 0;
-const kitty = (keys, payload = '') => `\x1b_G${keys};${payload}\x1b\\`;
-// Hide the cursor, park it where the frame goes, then send the PNG in 4 KB chunks.
-// C=1 keeps the cursor still, so the shell prompt below never scrolls the picture.
-function draw(fd, png, { row, col, cols, rows }) {
-  const next = shown === IMAGES[0] ? IMAGES[1] : IMAGES[0];
-  let out = `\x1b[?25l\x1b[${row + 1};${col + 1}H`;
-  for (let i = 0; i < png.length; i += 4096) {
-    const more = i + 4096 < png.length ? 1 : 0;
-    out += kitty(i === 0 ? `a=T,f=100,i=${next},p=1,q=2,C=1,c=${cols},r=${rows},m=${more}` : `m=${more}`, png.slice(i, i + 4096));
-  }
-  if (shown) out += kitty(`a=d,d=I,i=${shown},q=2`);
-  writeSync(fd, out);
+// A pty can take less than the whole frame in one write; a cut-off escape would
+// swallow whatever the terminal reads next.
+function writeAll(fd, text) {
+  const buf = Buffer.from(text);
+  for (let off = 0; off < buf.length;) off += writeSync(fd, buf, off);
+}
+let shown = 0;                                       // image id on screen, 0 for none
+function draw(fd, png, place) {
+  const { out, next } = encodeFrame(png, place, shown);
+  writeAll(fd, out);
   shown = next;
 }
 function erase(fd, clearScreen = false) {
-  try { writeSync(fd, IMAGES.map((i) => kitty(`a=d,d=I,i=${i},q=2`)).join('') + (clearScreen ? '\x1b[2J\x1b[H' : '')); } catch { /* pane gone */ }
+  try { writeAll(fd, eraseAll(clearScreen)); } catch { /* pane gone */ }
   shown = 0;
 }
 
@@ -316,11 +311,11 @@ async function persistSave() {
 
 let stopping = false;
 let tty = null;
-async function shutdown() {
+async function shutdown(code = 0) {
   if (stopping) return;
   stopping = true;
   await persistSave();
-  if (tty !== null) { erase(tty); try { writeSync(tty, '\x1b[?25h'); } catch { /* pane gone */ } }
+  if (tty !== null) { erase(tty); try { writeAll(tty, '\x1b[?25h'); } catch { /* pane gone */ } }
   await new Promise((r) => {
     if (chrome.exitCode !== null || chrome.signalCode !== null) return r();
     chrome.once('exit', r);
@@ -328,7 +323,7 @@ async function shutdown() {
     setTimeout(() => { chrome.kill('SIGKILL'); r(); }, 2000);
   });
   rmSync(profile, { recursive: true, force: true });
-  process.exit(0);
+  process.exit(code);
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
@@ -403,7 +398,7 @@ async function main() {
 
   let size = await paneSize();
   tty = paneTty();
-  if (tty === null) { console.error('no terminal for pane', PANE); await shutdown(); }
+  if (tty === null) { console.error('no terminal for pane', PANE); await shutdown(1); }
   erase(tty, true);                                                   // the shell prompt goes
   let frame = 0;
   let deadSince = 0;
@@ -468,6 +463,7 @@ async function main() {
     if (placed && (placed.cols !== cols || placed.rows !== rows || placed.row !== place.row || placed.col !== place.col)) {
       erase(tty, true);                                                // resized: no stale edges
     }
+    if (stopping) break;                                               // shutdown already cleared the pane
     try { draw(tty, data, place); } catch { break; }                   // pane closed
     placed = place;
 
