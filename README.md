@@ -19,7 +19,7 @@ The games alternate strictly instead of at random. I tried a coin flip first, bu
 
 ## How the game gets into a terminal
 
-`dungeon.mjs` opens a headless Chrome, loads the game's `index.html`, and screenshots it about 8 times a second. Each screenshot goes to the pane through herdr's graphics API, over its unix socket.
+`dungeon.mjs` opens a headless Chrome, loads the game's `index.html`, and screenshots it about 8 times a second. Each screenshot is written to the pane's terminal as a Kitty graphics image, which herdr (0.9.2 or later) draws. Two image ids take turns, so a frame is up before the one it replaces is deleted and the pane doesn't flicker.
 
 - **Dungeon:** the game already plays itself. The script just presses respawn when the hero dies.
 - **CodeMon:** the script drives it, walking around, starting fights and picking moves. During a fight it crops to the battle screen so the fight fills the pane. The rest of the time it shows the whole board.
