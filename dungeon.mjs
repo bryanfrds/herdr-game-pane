@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Stream ~/pixel-dungeon-crawler into a herdr pane via the herdr graphics API.
+// Stream ~/pixel-dungeon-crawler into a herdr pane as Kitty graphics written to the pane's terminal.
 // Headless Chrome runs the game (auto-play is on by default); we screenshot the
 // play area a few times a second and push each frame as a PNG image layer.
 // Chrome talks over --remote-debugging-pipe, so it dies with this process.
 import { spawn, execSync } from 'node:child_process';
 import { connect } from 'node:net';
-import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, renameSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, renameSync, existsSync, openSync, writeSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -36,7 +36,6 @@ const LEAN_FLAGS = [
   '--disable-features=Translate,OptimizationHints,MediaRouter,BackForwardCache,site-per-process,IsolateOrigins,AudioServiceOutOfProcess',
   ...(SHELL ? ['--single-process'] : []),
 ];
-const LAYER = process.env.DUNGEON_LAYER || 'dungeon';
 // Chrome's profile is thrown away each run, so the game's save lives here instead.
 const SAVE_FILE = process.env.DUNGEON_SAVE || join(homedir(), '.claude/runner/dungeon-save.json');
 // Which localStorage key holds the save. Empty means the game has no save at all
@@ -212,6 +211,40 @@ function fitToPane(clip, size) {
   return { x: Math.max(0, x), y: Math.max(0, y), width: w, height: h, scale: 1 };
 }
 
+// ---- Drawing. herdr 0.9.2 dropped its pane.graphics API: apps now write standard Kitty
+// graphics to their own terminal, which herdr draws. This process runs outside the pane,
+// so it writes to the terminal of the pane's shell instead.
+function paneTty() {
+  try {
+    const info = JSON.parse(execSync(`herdr pane process-info --pane ${JSON.stringify(PANE)}`).toString());
+    const pid = info?.result?.process_info?.shell_pid;
+    const tty = pid && execSync(`ps -o tty= -p ${Number(pid)}`).toString().trim();
+    return tty && tty !== '??' ? openSync(`/dev/${tty}`, 'w') : null;
+  } catch { return null; }
+}
+// Two image ids taken in turn: each frame lands before the one it replaces is deleted,
+// so the pane never shows a gap between frames.
+const IMAGES = [7, 8];
+let shown = 0;
+const kitty = (keys, payload = '') => `\x1b_G${keys};${payload}\x1b\\`;
+// Hide the cursor, park it where the frame goes, then send the PNG in 4 KB chunks.
+// C=1 keeps the cursor still, so the shell prompt below never scrolls the picture.
+function draw(fd, png, { row, col, cols, rows }) {
+  const next = shown === IMAGES[0] ? IMAGES[1] : IMAGES[0];
+  let out = `\x1b[?25l\x1b[${row + 1};${col + 1}H`;
+  for (let i = 0; i < png.length; i += 4096) {
+    const more = i + 4096 < png.length ? 1 : 0;
+    out += kitty(i === 0 ? `a=T,f=100,i=${next},p=1,q=2,C=1,c=${cols},r=${rows},m=${more}` : `m=${more}`, png.slice(i, i + 4096));
+  }
+  if (shown) out += kitty(`a=d,d=I,i=${shown},q=2`);
+  writeSync(fd, out);
+  shown = next;
+}
+function erase(fd, clearScreen = false) {
+  try { writeSync(fd, IMAGES.map((i) => kitty(`a=d,d=I,i=${i},q=2`)).join('') + (clearScreen ? '\x1b[2J\x1b[H' : '')); } catch { /* pane gone */ }
+  shown = 0;
+}
+
 async function paneSize() {
   const r = await herdr('pane.layout', { pane_id: PANE });
   const p = r?.result?.layout?.panes?.find((e) => e.pane_id === PANE);
@@ -282,11 +315,12 @@ async function persistSave() {
 }
 
 let stopping = false;
+let tty = null;
 async function shutdown() {
   if (stopping) return;
   stopping = true;
   await persistSave();
-  await herdr('pane.graphics.clear', { pane_id: PANE, layer_id: LAYER });
+  if (tty !== null) { erase(tty); try { writeSync(tty, '\x1b[?25h'); } catch { /* pane gone */ } }
   await new Promise((r) => {
     if (chrome.exitCode !== null || chrome.signalCode !== null) return r();
     chrome.once('exit', r);
@@ -368,9 +402,13 @@ async function main() {
   let clip = await getClip();
 
   let size = await paneSize();
+  tty = paneTty();
+  if (tty === null) { console.error('no terminal for pane', PANE); await shutdown(); }
+  erase(tty, true);                                                   // the shell prompt goes
   let frame = 0;
   let deadSince = 0;
   let failures = 0;                                                   // herdr misses in a row
+  let placed = null;
   while (!stopping && size && failures < 3) {
     const t0 = Date.now();
     if (frame % (FPS * 2) === 0) {                                    // follow resizes
@@ -422,19 +460,16 @@ async function main() {
       rows = size.rows;
       cols = Math.round((rows * CELL_ASPECT * shot.width) / shot.height);
     }
-    const r = await herdr('pane.graphics.set', {
-      pane_id: PANE, format: 'png',
-      image_width: Math.round(shot.width), image_height: Math.round(shot.height),
-      data_base64: data,
-      placement: {
-        viewport_row: Math.max(0, Math.floor((size.rows - rows) / 2)),
-        viewport_col: Math.max(0, Math.floor((size.cols - cols) / 2)),
-        grid_cols: cols, grid_rows: rows,
-      },
-      z_index: 10, layer_id: LAYER,
-    });
-    if (r?.error) break;                                               // pane closed
-    failures = r ? 0 : failures + 1;                                  // herdr gone?
+    const place = {
+      row: Math.max(0, Math.floor((size.rows - rows) / 2)),
+      col: Math.max(0, Math.floor((size.cols - cols) / 2)),
+      cols, rows,
+    };
+    if (placed && (placed.cols !== cols || placed.rows !== rows || placed.row !== place.row || placed.col !== place.col)) {
+      erase(tty, true);                                                // resized: no stale edges
+    }
+    try { draw(tty, data, place); } catch { break; }                   // pane closed
+    placed = place;
 
     frame++;
     if (frame % (FPS * 5) === 0) await persistSave();                  // every ~5 s
