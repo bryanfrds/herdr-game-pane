@@ -323,7 +323,7 @@ async function shutdown(code = 0) {
     setTimeout(() => { chrome.kill('SIGKILL'); r(); }, 2000);
   });
   rmSync(profile, { recursive: true, force: true });
-  process.exit(code);
+  process.exit(Number.isInteger(code) ? code : 0);   // as a signal or error handler it gets that, not a code
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
