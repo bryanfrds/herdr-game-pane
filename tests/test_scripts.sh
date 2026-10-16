@@ -376,9 +376,9 @@ has "GREEN_FN_VOLUME still sets it" "$LOG" "^osascript .*fail-video\\.mp4 +0\\.5
 has "POPUP_VOLUME wins over it" "$LOG" "^osascript .*fail-video\\.mp4 +0\\.8$"
 teardown
 
-echo "kitty.mjs"
+echo "kitty.mjs and pacing.mjs"
 
-# The frame encoder, checked byte for byte in tests/kitty.mjs. A cut-off or
+# The frame encoder (tests/kitty.mjs, byte for byte) and the frame pacing (tests/pacing.mjs). A cut-off or
 # misnumbered escape shows as garbage or a blank pane, and nothing else catches it.
 while IFS= read -r line; do
   case "$line" in
@@ -386,7 +386,7 @@ while IFS= read -r line; do
     "FAIL "*) fail "${line#FAIL }" ;;
     *)        fail "tests/kitty.mjs printed: $line" ;;
   esac
-done < <("$REAL_NODE" "$REPO/tests/kitty.mjs" 2>&1 || echo "FAIL tests/kitty.mjs exited non-zero")
+done < <(for t in kitty pacing; do "$REAL_NODE" "$REPO/tests/$t.mjs" 2>&1 || echo "FAIL tests/$t.mjs exited non-zero"; done)
 
 echo
 echo "$PASS passed, $FAIL failed"

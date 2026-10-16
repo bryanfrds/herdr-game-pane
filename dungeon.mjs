@@ -5,6 +5,7 @@
 // Chrome talks over --remote-debugging-pipe, so it dies with this process.
 import { spawn, execSync, execFileSync } from 'node:child_process';
 import { frame as encodeFrame, eraseAll } from './kitty.mjs';
+import { parseFps, shotScale, shouldDraw } from './pacing.mjs';
 import { connect } from 'node:net';
 import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, renameSync, existsSync, openSync, writeSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -171,9 +172,9 @@ const PROFILES = {
   },
 };
 const PROFILE = PROFILES[process.env.DUNGEON_PROFILE || 'dungeon'] || PROFILES.dungeon;
-const TICK_EVERY = Number(process.env.DUNGEON_TICK_FRAMES || 6);   // frames between ticks
+const TICK_EVERY = Number(process.env.DUNGEON_TICK_FRAMES || 3);   // frames between ticks
 
-const FPS = 8;
+const FPS = parseFps(process.env.DUNGEON_FPS);
 const CELL_ASPECT = 2.0;   // terminal cell height / width, in pixels
 
 if (!PANE) { console.error('no pane id'); process.exit(1); }
@@ -404,6 +405,8 @@ async function main() {
   let deadSince = 0;
   let failures = 0;                                                   // herdr misses in a row
   let placed = null;
+  let lastFrame = null;
+  let sinceDrawn = 0;
   while (!stopping && size && failures < 3) {
     const t0 = Date.now();
     if (frame % (FPS * 2) === 0) {                                    // follow resizes
@@ -445,7 +448,7 @@ async function main() {
     // (a portrait map under stacked side panels), and without this Chrome leaves
     // everything below the fold blank - the lower half of the map, hero included.
     const { data } = await S('Page.captureScreenshot',
-                             { format: 'png', clip: shot, captureBeyondViewport: true });
+                             { format: 'png', clip: { ...shot, scale: shotScale(size.cols, shot.width) }, captureBeyondViewport: true });
     if (process.env.DUNGEON_DUMP) writeFileSync(process.env.DUNGEON_DUMP, Buffer.from(data, 'base64'));
 
     // Fit the image inside the pane, keeping its shape.
@@ -460,11 +463,14 @@ async function main() {
       col: Math.max(0, Math.floor((size.cols - cols) / 2)),
       cols, rows,
     };
-    if (placed && (placed.cols !== cols || placed.rows !== rows || placed.row !== place.row || placed.col !== place.col)) {
-      erase(tty, true);                                                // resized: no stale edges
-    }
+    const moved = !placed || placed.cols !== cols || placed.rows !== rows || placed.row !== place.row || placed.col !== place.col;
+    if (placed && moved) erase(tty, true);                             // resized: no stale edges
     if (stopping) break;                                               // shutdown already cleared the pane
-    try { draw(tty, data, place); } catch { break; }                   // pane closed
+    if (shouldDraw({ moved, data, lastFrame, sinceDrawn, refreshFrames: FPS * 3 })) {
+      try { draw(tty, data, place); } catch { break; }                 // pane closed
+      lastFrame = data;
+      sinceDrawn = 0;
+    } else sinceDrawn++;
     placed = place;
 
     frame++;
