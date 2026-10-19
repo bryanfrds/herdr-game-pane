@@ -5,7 +5,7 @@
 // Chrome talks over --remote-debugging-pipe, so it dies with this process.
 import { spawn, execSync, execFileSync } from 'node:child_process';
 import { frame as encodeFrame, eraseAll } from './kitty.mjs';
-import { parseFps, shotScale, shouldDraw, busyPause } from './pacing.mjs';
+import { parseFps, shotScale, shouldDraw, busyPause, maxLoad, framesToNextCheck } from './pacing.mjs';
 import { connect } from 'node:net';
 import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, renameSync, existsSync, openSync, writeSync } from 'node:fs';
 import { tmpdir, homedir, loadavg, cpus } from 'node:os';
@@ -408,7 +408,7 @@ async function main() {
   let lastFrame = null;
   let sinceDrawn = 0;
   let paused = false;
-  const cores = Number(process.env.RUNNER_MAX_LOAD) || cpus().length;
+  const cores = maxLoad(process.env.RUNNER_MAX_LOAD, cpus().length);
   while (!stopping && size && failures < 3) {
     const t0 = Date.now();
     if (frame % (FPS * 2) === 0) {                                    // follow resizes
@@ -423,7 +423,7 @@ async function main() {
       }
     }
     if (paused) {                                                     // check again in 2 s
-      frame += FPS * 2 - (frame % (FPS * 2));
+      frame += framesToNextCheck(frame, FPS);
       await sleep(2000);
       continue;
     }

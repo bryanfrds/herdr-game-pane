@@ -34,10 +34,12 @@ if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
   exit 0
 fi
 
-# A busy Mac gets no game: with more work waiting than cores (builds, many agents), the
-# game's headless Chrome only adds to the lag. RUNNER_MAX_LOAD overrides the core count.
-LOAD=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
-MAX_LOAD="${RUNNER_MAX_LOAD:-$(sysctl -n hw.ncpu 2>/dev/null)}"
+# A busy Mac gets no game or runner: with more work waiting than cores (builds, many
+# agents), they only add to the lag. RUNNER_MAX_LOAD (a positive number) overrides the core
+# count. LC_ALL=C and the comma swap keep the load a plain decimal in any locale.
+LOAD=$(LC_ALL=C sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}' | tr , .)
+MAX_LOAD="${RUNNER_MAX_LOAD:-}"
+case "$MAX_LOAD" in ''|*[!0-9.]*|.|0|0.*) MAX_LOAD=$(sysctl -n hw.ncpu 2>/dev/null) ;; esac
 if [ -n "$LOAD" ] && [ -n "$MAX_LOAD" ] && awk -v l="$LOAD" -v m="$MAX_LOAD" 'BEGIN { exit !(l > m) }'; then
   exit 0
 fi

@@ -152,6 +152,10 @@ hook sess-1 | FAKE_LOAD=14.20 "$RUN/start.sh"
 hasnt "a busy Mac (load over the core count) gets no game" "$LOG" "pane split"
 : > "$LOG"; hook sess-1 | FAKE_LOAD=14.20 RUNNER_MAX_LOAD=20 "$RUN/start.sh"; settle
 has   "RUNNER_MAX_LOAD raises the limit" "$LOG" "pane split"
+: > "$LOG"; hook sess-1 | FAKE_LOAD=6,09 "$RUN/start.sh"; settle
+has   "a decimal-comma load (some locales) is still read as a number" "$LOG" "pane split"
+: > "$LOG"; hook sess-1 | FAKE_LOAD=14.20 RUNNER_MAX_LOAD=junk "$RUN/start.sh"
+hasnt "a junk RUNNER_MAX_LOAD falls back to the core count" "$LOG" "pane split"
 teardown
 
 setup; panes p sess-1; echo stale-pane > "$RUN/.pane_p_"
