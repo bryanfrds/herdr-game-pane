@@ -34,6 +34,14 @@ if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
   exit 0
 fi
 
+# A busy Mac gets no game: with more work waiting than cores (builds, many agents), the
+# game's headless Chrome only adds to the lag. RUNNER_MAX_LOAD overrides the core count.
+LOAD=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
+MAX_LOAD="${RUNNER_MAX_LOAD:-$(sysctl -n hw.ncpu 2>/dev/null)}"
+if [ -n "$LOAD" ] && [ -n "$MAX_LOAD" ] && awk -v l="$LOAD" -v m="$MAX_LOAD" 'BEGIN { exit !(l > m) }'; then
+  exit 0
+fi
+
 # A side pane from a run that died without the Stop hook: close it, don't stack another.
 if [ -f "$DIR/.pane_$SLUG" ]; then
   herdr pane close "$(cat "$DIR/.pane_$SLUG")" >/dev/null 2>&1
