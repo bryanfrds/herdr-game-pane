@@ -1,5 +1,5 @@
 // Checks for pacing.mjs. Prints "ok <name>" or "FAIL <name>" per check; run by test_scripts.sh.
-import { parseFps, shotScale, shouldDraw, PX_PER_COL } from '../pacing.mjs';
+import { parseFps, shotScale, shouldDraw, busyPause, PX_PER_COL } from '../pacing.mjs';
 
 const check = (name, holds) => console.log(`${holds ? 'ok' : 'FAIL'} ${name}`);
 
@@ -15,3 +15,8 @@ check('an unchanged frame in place is skipped', !shouldDraw(base));
 check('a changed frame is drawn', shouldDraw({ ...base, data: 'B' }));
 check('a moved or resized frame is drawn even if unchanged', shouldDraw({ ...base, moved: true }));
 check('an unchanged frame is redrawn once the refresh comes round', shouldDraw({ ...base, sinceDrawn: 12 }));
+
+check('a calm Mac keeps playing', busyPause(4, 10, false) === false);
+check('more work than cores pauses the game', busyPause(12, 10, false) === true);
+check('a paused game waits until the load is well down', busyPause(9, 10, true) === true);
+check('and then resumes', busyPause(6, 10, true) === false);
