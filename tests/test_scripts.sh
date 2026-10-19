@@ -46,13 +46,16 @@ SH
 [ "${1:-}" = -e ] && exec "$REAL_NODE" "$@"
 echo "node $* game=${DUNGEON_GAME:-} profile=${DUNGEON_PROFILE:-} save=${DUNGEON_SAVE:-}" >> "$LOG"
 SH
+  # sysctl: a calm Mac with 10 cores, unless a test sets FAKE_LOAD.
+  printf '#!/bin/bash\ncase "$2" in vm.loadavg) echo "{ ${FAKE_LOAD:-1.00} 1.00 1.00 }" ;; hw.ncpu) echo 10 ;; esac\n' > "$T/bin/sysctl"
+  chmod +x "$T/bin/sysctl"
   # pkill: logged, never run, so a test can't stop a real game.
   printf '#!/bin/bash\necho "pkill $*" >> "$LOG"\n' > "$T/bin/pkill"
   chmod +x "$T/bin/herdr" "$T/bin/node" "$T/bin/pkill"
   export PATH="$T/bin:$ORIG_PATH"
   # Keep dungeon mode on machines without Chrome, such as CI.
   export DUNGEON_CHROME=fake HERDR_PANE_ID=env-pane
-  unset RUNNER_MODE RUNNER_GAME CLAUDE_CODE_SESSION_KIND FAKE_PANES SPLIT_FAILS SPLIT_JSON
+  unset RUNNER_MODE RUNNER_GAME CLAUDE_CODE_SESSION_KIND FAKE_PANES SPLIT_FAILS SPLIT_JSON FAKE_LOAD RUNNER_MAX_LOAD
   # stop.sh talks to herdr's socket directly; point it somewhere with nothing listening.
   export HERDR_SOCKET_PATH="$T/herdr.sock"
   unset HERDR_ENV HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_BIN_PATH
@@ -142,6 +145,17 @@ setup; panes p sess-1
 echo $$ > "$RUN/.pid_p_"                        # a game already running in this pane
 hook sess-1 | "$RUN/start.sh"
 hasnt "leaves a game that is still running alone" "$LOG" "pane split"
+teardown
+
+setup; panes p sess-1
+hook sess-1 | FAKE_LOAD=14.20 "$RUN/start.sh"
+hasnt "a busy Mac (load over the core count) gets no game" "$LOG" "pane split"
+: > "$LOG"; hook sess-1 | FAKE_LOAD=14.20 RUNNER_MAX_LOAD=20 "$RUN/start.sh"; settle
+has   "RUNNER_MAX_LOAD raises the limit" "$LOG" "pane split"
+: > "$LOG"; hook sess-1 | FAKE_LOAD=6,09 "$RUN/start.sh"; settle
+has   "a decimal-comma load (some locales) is still read as a number" "$LOG" "pane split"
+: > "$LOG"; hook sess-1 | FAKE_LOAD=14.20 RUNNER_MAX_LOAD=junk "$RUN/start.sh"
+hasnt "a junk RUNNER_MAX_LOAD falls back to the core count" "$LOG" "pane split"
 teardown
 
 setup; panes p sess-1; echo stale-pane > "$RUN/.pane_p_"
