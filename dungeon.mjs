@@ -5,10 +5,10 @@
 // Chrome talks over --remote-debugging-pipe, so it dies with this process.
 import { spawn, execSync, execFileSync } from 'node:child_process';
 import { frame as encodeFrame, eraseAll } from './kitty.mjs';
-import { parseFps, shotScale, shouldDraw } from './pacing.mjs';
+import { parseFps, shotScale, shouldDraw, busyPause } from './pacing.mjs';
 import { connect } from 'node:net';
 import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, renameSync, existsSync, openSync, writeSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir, homedir, loadavg, cpus } from 'node:os';
 import { join } from 'node:path';
 
 const PANE = process.argv[2] || process.env.HERDR_PANE_ID;
@@ -407,11 +407,25 @@ async function main() {
   let placed = null;
   let lastFrame = null;
   let sinceDrawn = 0;
+  let paused = false;
+  const cores = Number(process.env.RUNNER_MAX_LOAD) || cpus().length;
   while (!stopping && size && failures < 3) {
     const t0 = Date.now();
     if (frame % (FPS * 2) === 0) {                                    // follow resizes
       const s = await paneSize();
       if (s) size = s; else failures++;
+      // While the Mac is busy, freeze the page (no game, no screenshots) and keep the last
+      // frame on screen; it carries on where it left off once things calm down.
+      const nowPaused = busyPause(loadavg()[0], cores, paused);
+      if (nowPaused !== paused) {
+        paused = nowPaused;
+        await S('Page.setWebLifecycleState', { state: paused ? 'frozen' : 'active' }).catch(() => {});
+      }
+    }
+    if (paused) {                                                     // check again in 2 s
+      frame += FPS * 2 - (frame % (FPS * 2));
+      await sleep(2000);
+      continue;
     }
 
     if (PROFILE.dead) {

@@ -20,3 +20,10 @@ export const shotScale = (paneCols, shotWidth) => Math.min(1, (paneCols * PX_PER
 export function shouldDraw({ moved, data, lastFrame, sinceDrawn, refreshFrames }) {
   return moved || data !== lastFrame || sinceDrawn >= refreshFrames;
 }
+
+// Whether the game should be paused, given the 1-minute load average and the core count.
+// It pauses when there's more work waiting than cores (builds, many agents), and only
+// resumes once the load is well below that, so it doesn't flicker on and off at the edge.
+export function busyPause(load, cores, paused) {
+  return paused ? load > cores * 0.7 : load > cores;
+}
