@@ -21,6 +21,8 @@ try? " dungeon \n".write(to: file, atomically: true, encoding: .utf8)
 check("spaces around the word are ignored, as in start.sh", savedChoice(at: file), "dungeon")
 try? "\noff\n".write(to: file, atomically: true, encoding: .utf8)
 check("only the first line counts, as in start.sh", savedChoice(at: file), "auto")
+try? Data([0xEF, 0xBB, 0xBF] + Array("off\n".utf8)).write(to: file)
+check("a byte order mark isn't stripped, as in start.sh", savedChoice(at: file), "auto")
 check("every choice is one start.sh knows", choices.map(\.id), ["auto", "dungeon", "codemon", "off"])
 check("a missing folder fails to save rather than crashing",
       save("off", to: dir.appendingPathComponent("gone/choice")), false)
