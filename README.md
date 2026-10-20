@@ -9,7 +9,7 @@ You send Claude a message and a pane opens on the right with a game playing itse
 1. Claude Code runs `start.sh` through its `UserPromptSubmit` hook.
 2. `start.sh` splits the current herdr pane to open one on the right, and picks which game is up.
 3. It starts `dungeon.mjs` in the background, pointed at the new pane.
-4. When Claude stops, the `Stop` hook runs `stop.sh`. That kills the renderer, clears the image off the pane, and closes it.
+4. When Claude stops, the `Stop` hook runs `stop.sh`. That kills the renderer and closes the pane, which takes the image with it.
 
 Everything is tracked per pane, so if you've got several Claude sessions open in herdr, each one gets its own game and closing one doesn't touch the others.
 
@@ -41,13 +41,12 @@ Chrome's profile is thrown away every run, so the dungeon's save is copied out t
 - `start.sh` / `stop.sh`: the two Claude Code hooks.
 - `pane-for-session.sh`: finds the herdr pane a Claude session is really in (see above).
 - `play.sh`: starts a game whenever you want one, not just while Claude works. `play.sh codemon`, `play.sh dungeon`, or `play.sh stop`.
-- `bounce.py`: an older, lighter mode that bounces a sprite around the pane instead of running a game. It needs PNGs in `sprites/`, which aren't in the repo. It still uses herdr's old graphics API, so it draws nothing on herdr 0.9.2 or later.
 - `pr-popup.sh`: an optional extra, not part of the game pane. When a `pr-reviewer` subagent finishes, it shows a small card at the bottom of the screen with a sound: `green-fn-cropped.png` and `green-fn.mp3` for an approval (taking turns with `green-fn-video.mov`, a clip with a see-through background that plays with its own sound, at 30% volume; `GREEN_FN=image` or `GREEN_FN=video` picks one), `thanos.gif` and `fahhh.mp3` for requested changes (taking turns with `fail-video.mp4`, shown as a rounded card with its own sound; `THANOS=image` or `THANOS=video` picks one). Videos play at 30% volume; `POPUP_VOLUME` sets 0-1 (`GREEN_FN_VOLUME` still works as a fallback, and now covers both clips). Those files are your own and aren't in the repo; without the image it does nothing. Hook it up as a `SubagentStop` hook (`bash ~/.claude/runner/pr-popup.sh`), and try it with `pr-popup.sh --show green` or `--show fail`. macOS only.
 - `tests/`: tests for the hook scripts (see Tests below).
 
 ## Setup
 
-You need herdr, Node, and either Google Chrome or Playwright's headless shell. The headless shell is used if it's installed, since it's lighter. With no browser at all, it falls back to the bouncing sprite, which is the one part that needs Python 3 (`bounce.py`); the hooks themselves no longer use Python.
+You need herdr, Node, and either Google Chrome or Playwright's headless shell. The headless shell is used if it's installed, since it's lighter. With no browser at all, no game opens. Nothing needs Python.
 
 Clone this to `~/.claude/runner`, then add the hooks to `~/.claude/settings.json`:
 
@@ -67,7 +66,6 @@ All of these are environment variables:
 | Variable | What it does |
 |---|---|
 | `RUNNER_GAME` | `codemon` or `dungeon` to always play that one game |
-| `RUNNER_MODE` | `overlay` bounces the sprite over the Claude pane; `pane` bounces it in a side pane (both need herdr before 0.9.2) |
 | `DUNGEON_GAME` | path to a different game's `index.html` |
 | `DUNGEON_CHROME` | path to a specific Chrome binary |
 | `DUNGEON_DEBUG` | `1` logs layout info and any errors from the auto-player |
