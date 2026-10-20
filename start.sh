@@ -8,6 +8,11 @@ set -u
   && [ -z "${DUNGEON_CHROME:-}" ] && exit 0
 DIR="$HOME/.claude/runner"
 [ -n "${HERDR_PANE_ID:-}" ] || exit 0     # not inside herdr at all
+# What to play: RUNNER_GAME, else the choice the menu bar picker saved (auto, dungeon,
+# codemon or off): the file's first line without spaces or a Windows \r, the same rule as
+# savedChoice in picker/Choice.swift. Anything else plays both in turn.
+CHOICE="${RUNNER_GAME:-$(head -n 1 "$DIR/choice" 2>/dev/null | tr -d ' \t\r')}"
+[ "$CHOICE" = off ] && exit 0
 
 # The hook's JSON arrives once on stdin; keep it, both the pane lookup and the
 # save key need the session id from it.
@@ -70,9 +75,9 @@ TARGET="$NEW"
 SID=$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9-' '_' | sed 's/_*$//')
 mkdir -p "$DIR/saves"
 
-# Pick a game for this turn. RUNNER_GAME pins one (dungeon|codemon); otherwise
-# it alternates at random, so you get a different one most turns.
-GAME_PICK="${RUNNER_GAME:-}"
+# Pick a game for this turn. A choice of dungeon or codemon pins it; otherwise the
+# two alternate, so you get a different one each turn.
+case "$CHOICE" in dungeon|codemon) GAME_PICK=$CHOICE ;; *) GAME_PICK= ;; esac
 if [ -z "$GAME_PICK" ]; then
   # Strict alternation, not a coin flip: independent 50/50 draws cluster, and
   # three dungeons in a row reads as "codemon is broken" rather than as luck.
@@ -86,7 +91,7 @@ fi
 [ -f "$HOME/pixel-dungeon-crawler/index.html" ] || GAME_PICK=codemon
 
 echo "$GAME_PICK" > "$DIR/.last_game_$SLUG"
-echo "$(date +%H:%M:%S) $GAME_PICK ${RUNNER_GAME:-auto} $TARGET" >> "$DIR/picks.log"
+echo "$(date +%H:%M:%S) $GAME_PICK ${CHOICE:-auto} $TARGET" >> "$DIR/picks.log"
 
 if [ "$GAME_PICK" = "codemon" ]; then
   # CodeMon keeps no localStorage save, so no key and no save file.

@@ -4,6 +4,7 @@
 .last_game_*
 .play_pane
 picks.log
+choice
 
 # Game saves (one per Claude session)
 saves/
