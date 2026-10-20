@@ -9,8 +9,9 @@ set -u
 DIR="$HOME/.claude/runner"
 [ -n "${HERDR_PANE_ID:-}" ] || exit 0     # not inside herdr at all
 # What to play: RUNNER_GAME, else the choice the menu bar picker saved (auto, dungeon,
-# codemon or off). Anything else plays both in turn.
-CHOICE="${RUNNER_GAME:-$(head -n 1 "$DIR/choice" 2>/dev/null)}"
+# codemon or off): the file's first line without spaces or a Windows \r, the same rule as
+# savedChoice in picker/Choice.swift. Anything else plays both in turn.
+CHOICE="${RUNNER_GAME:-$(head -n 1 "$DIR/choice" 2>/dev/null | tr -d ' \t\r')}"
 [ "$CHOICE" = off ] && exit 0
 
 # The hook's JSON arrives once on stdin; keep it, both the pane lookup and the

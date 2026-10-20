@@ -141,6 +141,18 @@ hook sess-1 | "$RUN/start.sh"; sleep 0.3
 hasnt "a saved choice of off opens nothing" "$LOG" "pane split"
 teardown
 
+# Read by the same rule as the picker app: first line, without spaces or a Windows \r.
+setup; panes p sess-1; printf 'off\r\n' > "$RUN/choice"
+hook sess-1 | "$RUN/start.sh"; sleep 0.3
+hasnt "off with a Windows line ending still opens nothing" "$LOG" "pane split"
+teardown
+
+setup; panes p sess-1; printf '  codemon \n' > "$RUN/choice"
+hook sess-1 | "$RUN/start.sh"; settle; rm -f "$RUN"/.pid_*
+hook sess-1 | "$RUN/start.sh"; settle 2
+hasnt "spaces around the choice are ignored" "$LOG" "^node .*profile= "
+teardown
+
 setup; panes p sess-1; echo off > "$RUN/choice"; export RUNNER_GAME=dungeon
 hook sess-1 | "$RUN/start.sh"; settle
 has   "RUNNER_GAME beats the saved choice" "$LOG" "^node .*profile= "
@@ -264,12 +276,14 @@ echo "picker"
 # The menu bar picker's file handling, where Swift is around (macOS, and Linux runners).
 if command -v swiftc >/dev/null; then
   B=$(mktemp -d)
-  if swiftc -swift-version 5 -o "$B/t" "$REPO/picker/Choice.swift" "$REPO/tests/picker/main.swift" 2>/dev/null; then
+  if swiftc -swift-version 5 -o "$B/t" "$REPO/picker/Choice.swift" "$REPO/tests/picker/main.swift" 2>"$B/err"; then
+    "$B/t" > "$B/out"; STATUS=$?
     while IFS= read -r line; do
       case "$line" in "  ok   "*) ok "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; esac
-    done < <("$B/t")
+    done < "$B/out"
+    check "the picker tests run to the end" "$STATUS$(tail -n 1 "$B/out")" "0all passed"
   else
-    fail "the picker builds"
+    fail "the picker builds" "$(head -n 3 "$B/err")"
   fi
   rm -rf "$B"
 fi

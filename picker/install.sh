@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 app="$HOME/Applications/Game Picker.app"
 
 build=$(mktemp -d)
+trap 'rm -rf "$build"' EXIT
 mkdir -p "$build/Game Picker.app/Contents/MacOS"
 cat > "$build/Game Picker.app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -27,6 +28,5 @@ pkill -x GamePicker 2>/dev/null || true
 mkdir -p "$HOME/Applications"
 rm -rf "$app"
 mv "$build/Game Picker.app" "$app"
-rmdir "$build"
 open "$app"
 echo "Game Picker is running: look for the game controller in the menu bar."

@@ -14,10 +14,12 @@ let choices = [
   Choice(id: "off", title: "Off"),
 ]
 
-// The saved choice, or "auto" when there's none or it isn't one we know.
+// The saved choice, or "auto" when there's none or it isn't one we know. Read by the same
+// rule as start.sh: the first line, without spaces or a Windows \r.
 func savedChoice(at file: URL) -> String {
-  let word = (try? String(contentsOf: file, encoding: .utf8))?
-    .split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+  let line = (try? String(contentsOf: file, encoding: .utf8))?
+    .components(separatedBy: "\n").first ?? ""   // not split(): Swift treats \r\n as one character
+  let word = line.filter { $0 != " " && $0 != "\t" && $0 != "\r" }
   return choices.contains { $0.id == word } ? word : "auto"
 }
 
