@@ -59,13 +59,17 @@ Clone this to `~/.claude/runner`, then add the hooks to `~/.claude/settings.json
 
 The games are expected at `~/pixel-dungeon-crawler` and `~/pokemon-wannabe`. The hooks only do anything inside herdr; in any other terminal they exit straight away.
 
+## Picking what plays
+
+`picker/install.sh` builds a small menu bar app, Game Picker, and opens it. Its game controller icon picks what the side pane plays: both games in turn, just Dungeon, just CodeMon, or nothing. The pick is saved as one word in `~/.claude/runner/choice`, which `start.sh` reads on every message. To start it at login, add `~/Applications/Game Picker.app` in System Settings > General > Login Items.
+
 ## Settings
 
 All of these are environment variables:
 
 | Variable | What it does |
 |---|---|
-| `RUNNER_GAME` | `codemon` or `dungeon` to always play that one game |
+| `RUNNER_GAME` | `codemon`, `dungeon` or `off`; wins over the Game Picker choice |
 | `DUNGEON_GAME` | path to a different game's `index.html` |
 | `DUNGEON_CHROME` | path to a specific Chrome binary |
 | `DUNGEON_DEBUG` | `1` logs layout info and any errors from the auto-player |
