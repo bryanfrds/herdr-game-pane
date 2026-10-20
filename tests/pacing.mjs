@@ -24,4 +24,6 @@ check('exactly at the core count is not yet busy', busyPause(10, 10, false) === 
 check('at exactly 70% a paused game resumes', busyPause(7, 10, true) === false);
 check('RUNNER_MAX_LOAD is used when positive', maxLoad('20', 10) === 20);
 check('0, junk or nothing falls back to the cores', ['0', '-3', 'fast', undefined].every((v) => maxLoad(v, 10) === 10));
+check('a decimal limit works', maxLoad('7.5', 10) === 7.5 && maxLoad('0.5', 10) === 0.5 && maxLoad('.5', 10) === 0.5 && maxLoad('5.', 10) === 5);
+check('what start.sh rejects falls back here too', ['00', '1e3', ' 20', 'Infinity', '1.2.3', '.', ''].every((v) => maxLoad(v, 10) === 10));
 check('a pause lands the next pass on a check frame', [0, 3, 7, 8, 13].every((f) => (f + framesToNextCheck(f, 4)) % 8 === 0));

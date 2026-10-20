@@ -28,8 +28,10 @@ export function busyPause(load, cores, paused) {
   return paused ? load > cores * 0.7 : load > cores;
 }
 
-// The load limit: RUNNER_MAX_LOAD when it's a positive number, else the core count.
-export const maxLoad = (value, cores) => (Number(value) > 0 ? Number(value) : cores);
+// The load limit: RUNNER_MAX_LOAD when it's a plain positive decimal ("20", "7.5"), else the
+// core count. start.sh uses the same rule, so "1e3", " 20" or "Infinity" fall back in both.
+export const maxLoad = (value, cores) =>
+  /^([0-9]+\.?[0-9]*|\.[0-9]+)$/.test(String(value ?? "")) && Number(value) > 0 ? Number(value) : cores;
 
 // Frames to skip while paused so the next pass lands on a 2-second check frame.
 export const framesToNextCheck = (frame, fps) => fps * 2 - (frame % (fps * 2));
