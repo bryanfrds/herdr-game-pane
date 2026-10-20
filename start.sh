@@ -33,11 +33,13 @@ if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
 fi
 
 # A busy Mac gets no game or runner: with more work waiting than cores (builds, many
-# agents), they only add to the lag. RUNNER_MAX_LOAD (a positive number) overrides the core
-# count. LC_ALL=C and the comma swap keep the load a plain decimal in any locale.
+# agents), they only add to the lag. RUNNER_MAX_LOAD overrides the core count when it's a
+# plain positive decimal, the same rule as maxLoad in pacing.mjs, so the start check and the
+# in-game pause agree. LC_ALL=C and the comma swap keep the load a plain decimal in any locale.
 LOAD=$(LC_ALL=C sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}' | tr , .)
 MAX_LOAD="${RUNNER_MAX_LOAD:-}"
-case "$MAX_LOAD" in ''|*[!0-9.]*|.|0|0.*) MAX_LOAD=$(sysctl -n hw.ncpu 2>/dev/null) ;; esac
+case "$MAX_LOAD" in *[!0-9.]*|*.*.*) MAX_LOAD= ;; esac
+awk -v m="$MAX_LOAD" 'BEGIN { exit !(m + 0 > 0) }' || MAX_LOAD=$(sysctl -n hw.ncpu 2>/dev/null)
 if [ -n "$LOAD" ] && [ -n "$MAX_LOAD" ] && awk -v l="$LOAD" -v m="$MAX_LOAD" 'BEGIN { exit !(l > m) }'; then
   exit 0
 fi

@@ -154,6 +154,16 @@ has   "RUNNER_MAX_LOAD raises the limit" "$LOG" "pane split"
 has   "a decimal-comma load (some locales) is still read as a number" "$LOG" "pane split"
 : > "$LOG"; hook sess-1 | FAKE_LOAD=14.20 RUNNER_MAX_LOAD=junk "$RUN/start.sh"
 hasnt "a junk RUNNER_MAX_LOAD falls back to the core count" "$LOG" "pane split"
+
+# The same rule as maxLoad in pacing.mjs: only a plain positive decimal overrides the cores.
+# A calm Mac (load 5, 10 cores) still gets its game when the value is unusable.
+for v in 00 1e3 1.2.3 " 20"; do
+  : > "$LOG"; hook sess-1 | FAKE_LOAD=5.00 RUNNER_MAX_LOAD="$v" "$RUN/start.sh"; settle
+  has   "RUNNER_MAX_LOAD=[$v] falls back to the core count" "$LOG" "pane split"
+  rm -f "$RUN"/.pid_* "$RUN"/.pane_*
+done
+: > "$LOG"; hook sess-1 | FAKE_LOAD=0.80 RUNNER_MAX_LOAD=0.5 "$RUN/start.sh"
+hasnt "a decimal limit below 1 is used" "$LOG" "pane split"
 teardown
 
 setup; panes p sess-1; echo stale-pane > "$RUN/.pane_p_"
